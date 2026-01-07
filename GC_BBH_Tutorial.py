@@ -26,8 +26,6 @@ all_data = GC_BBH.get_full_10_realizations()
 # --- Revised Output Section ---
 print(f"Total BBH systems in 10 MW GC realizations: {len(all_data)}")
 print(f"Example system parameters: {all_data[0]}")
-
-# Scientific Note on Sample Size and Independence
 print("\n[NOTE] Statistical Sampling Constraint:")
 print("The Monte Carlo N-body catalog has a finite size (N ~ 230 systems per MW realization).")
 print("Sampling sizes significantly exceeding the catalog limit will involve resampling,")
