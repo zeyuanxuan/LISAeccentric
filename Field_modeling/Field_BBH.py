@@ -63,17 +63,18 @@ def calculate_snr(m1, m2, a, e, Dl, tobs):
     f0max = 2 * np.sqrt((m1 + m2) / (4 * pi * pi * np.power(a * (1 - e), 3.0)))
     if f0max <= 1e-6 or f0max > 1.0: return 0.0
     sqrtsnf = np.sqrt(S_n_lisa(f0max))
-    treal = tobs#max(tobs, 1 / forb(m1, m2, a))
+    treal = tobs
     return h0max / sqrtsnf * np.sqrt(treal * np.power(1 - e, 3 / 2))
 
 
 # ==========================================
-# Internal Class (Hidden Implementation)
+# Internal Engine Class
 # ==========================================
 class _MW_Field_BBH_Engine:
     def __init__(self, m1=10 * m_sun, m2=10 * m_sun, formation_mod='starburst',
                  age=10e9 * years, n0=0.1 / (np.power(pc, 3)), rsun=8e3 * pc,
                  Rl=2.6e3 * pc, h=1e3 * pc, sigmav=50e3 / sciconsts.c, fbh=7.5e-4,
+                 mp=0.6 * m_sun, fgw=10,  # <--- NEW PARAMETERS ADDED HERE
                  n_sim_samples=100000, target_N=50000,
                  rrange_kpc=[0.5, 15], arange_log=[2, 4.5], blocknum=29,
                  data_dir=None, load_default=True):
@@ -83,8 +84,11 @@ class _MW_Field_BBH_Engine:
         self.avgage = 1e9 * years
         self.n0, self.rsun, self.Rl, self.h = n0, rsun, Rl, h
         self.sigmav, self.fbh = sigmav, fbh
-        self.mp = 0.6 * m_sun
-        self.fgw = 10
+
+        # --- NEW PARAM ASSIGNMENT ---
+        self.mp = mp  # Mass of the perturbing field star (fly-by object)
+        self.fgw = fgw  # GW frequency threshold for simulation end (LIGO band entry)
+
         self.rrange = [x * 1000 * pc for x in rrange_kpc]
         self.arange = arange_log
         self.blocknum, self.target_N = int(blocknum), int(target_N)
@@ -120,7 +124,8 @@ class _MW_Field_BBH_Engine:
         return self.n0 * math.exp(-1 * (r - self.rsun) / self.Rl)
 
     def run_simulation(self):
-        print(f"Running simulation ({self.blocknum} blocks x {self.radnum}^2)...")
+        print(
+            f"Running MC simulation (in {self.blocknum} MW radius blocks, {self.radnum} random SMA x {self.radnum} random eccentricity BBHs each block)...")
         raw_systemlist = []
         self.totalrate = 0.0
         deltar = (self.rrange[1] - self.rrange[0]) / self.blocknum
@@ -142,18 +147,18 @@ class _MW_Field_BBH_Engine:
                                 ncur * pi / beta, 2 / 7), 7 / 12)))
                 T = min(1 / (ncur * pi * b * b * self.sigmav), self.age)
                 acrit = np.power(4 / 27 * (self.m1 + self.m2) * np.power(beta, 2 / 7) * np.power(T, -12 / 7) / (
-                            self.mp ** 2 * pi ** 2 * ncur ** 2), 7 / 29)
+                        self.mp ** 2 * pi ** 2 * ncur ** 2), 7 / 29)
 
                 if acur < acrit:
                     rate = ncur * self.mp * np.power(acur, 13 / 14) * np.sqrt(
                         27 / 4 * np.power(beta * T, 2 / 7) / (self.m1 + self.m2)) * math.exp(-self.age / tau)
                     rate1 = tau * rate / math.exp(-self.age / tau) * (
-                                1 - math.exp(-self.age / tau)) * self.avgage / self.age / self.avgage
+                            1 - math.exp(-self.age / tau)) * self.avgage / self.age / self.avgage
                 else:
                     rate = np.power(acur, -8 / 7) * np.power(T, -5 / 7) * np.power(beta, 2 / 7) * math.exp(
                         -self.age / tau)
                     rate1 = tau * rate / math.exp(-self.age / tau) * (
-                                1 - math.exp(-self.age / tau)) * self.avgage / self.age / self.avgage
+                            1 - math.exp(-self.age / tau)) * self.avgage / self.age / self.avgage
 
                 submerger += rate * nbh / self.radnum * 1e6 * years
                 submerger1 += rate1 * nbh / self.radnum * 1e6 * years
@@ -172,12 +177,12 @@ class _MW_Field_BBH_Engine:
                             try:
                                 efinal = brentq(lambda e: c0 * peters_factor_func(e) - a_final, 1e-16, e_initial,
                                                 xtol=1e-12, maxiter=100)
-                            except ValueError:
+                            except:
                                 efinal = 0.0
 
                     Rcur, phi, cosi = ravg / 1000 / pc, 2 * pi * random.random(), 0
                     Dl = np.sqrt((Rcur * np.sqrt(1 - cosi ** 2) * np.sin(phi)) ** 2 + (Rcur * cosi) ** 2 + (
-                                Rcur * np.sqrt(1 - cosi ** 2) * np.cos(phi) - 8) ** 2) * 1000 * pc
+                            Rcur * np.sqrt(1 - cosi ** 2) * np.cos(phi) - 8) ** 2) * 1000 * pc
                     lifetime = tmerger(self.m1, self.m2, acur, e_initial)
 
                     final_rate = rate if self.formation_mod == 'starburst' else rate1
@@ -192,7 +197,8 @@ class _MW_Field_BBH_Engine:
             probs = weights / np.sum(weights)
             self.systemlist = data[np.random.choice(len(data), size=self.target_N, replace=True, p=probs)]
             self.is_simulated = True
-            print(f"Simulation Done. Rate: {self.totalrate:.5f} /Myr. Population: {len(self.systemlist)}")
+            print(
+                f"Simulation Done. Merger Rate in the galaxy: {self.totalrate:.5f} /Myr. Merger Sample Size: {len(self.systemlist)}")
         else:
             print("Error: No systems generated.")
 
@@ -211,9 +217,61 @@ class _MW_Field_BBH_Engine:
         else:
             print(f"No pre-generated data found in {self.data_dir}.")
 
+    def _process_candidates(self, events, t_window_Gyr, tobs_yr):
+        """
+        Internal function to process candidates (Evap, Back-evolve, Format).
+        Executed dynamically for every snapshot request.
+        """
+        n_cand = len(events)
+
+        t_future = np.random.uniform(0, t_window_Gyr * 1e9, size=n_cand) * years
+        surv_prob = np.exp(-t_future / events[:, 6])  # Index 6 is tau
+
+        surv_mask = np.random.random(n_cand) < surv_prob
+        accepted_events = events[surv_mask]
+        accepted_times = t_future[surv_mask]
+
+        current_ages = accepted_events[:, 5] - accepted_times
+        valid_mask = current_ages > 0
+
+        final_events = accepted_events[valid_mask]
+        final_ages = current_ages[valid_mask]
+
+        output_list = []
+
+        for i, row in enumerate(final_events):
+            a0, e0, life_tot = row[0], row[1], row[5]
+            age_now = final_ages[i]
+            dl = row[3]
+            t_rem = life_tot - age_now
+
+            if e0 < 1e-8:
+                a_curr, e_curr = a0 * np.power(t_rem / life_tot, 0.25), e0
+            else:
+                c0 = a0 / peters_factor_func(e0)
+                try:
+                    e_curr = brentq(lambda e: tmerger(self.m1, self.m2, c0 * peters_factor_func(e), e) - t_rem, 1e-16,
+                                    e0, xtol=1e-12, maxiter=50)
+                except:
+                    e_curr = 0.0
+                a_curr = c0 * peters_factor_func(e_curr)
+
+            snr = calculate_snr(self.m1, self.m2, a_curr, e_curr, dl, tobs_yr * years)
+
+            output_list.append([
+                'Field',
+                dl / 1000 / pc,  # Distance (kpc)
+                a_curr / AU,  # SMA (AU)
+                e_curr,  # Eccentricity
+                10.0, 10.0,  # M1, M2
+                snr
+            ])
+
+        return output_list
+
 
 # ==========================================
-# Module Level Interface (The API)
+# Public Interface (API)
 # ==========================================
 _GLOBAL_MODEL = None
 
@@ -237,6 +295,7 @@ def simulate_and_save_default_population(n_sim_samples=100000, target_N=50000, *
     return model
 
 
+# --- FEATURE 1: Get Eccentricity Samples ---
 def generate_eccentricity_samples(size=10000):
     model = _get_model()
     if len(model.systemlist) == 0: return np.array([])
@@ -247,26 +306,66 @@ def generate_eccentricity_samples(size=10000):
 def plot_eccentricity_cdf(e_samples=None, label=None):
     model = _get_model()
     plt.figure(figsize=(8, 6))
-
     pop_e = model.systemlist[:, 2]
     pop_e = np.sort(pop_e[pop_e > 1e-20])
     y_pop = np.arange(1, len(pop_e) + 1) / len(pop_e)
-    plt.plot(np.log10(pop_e), y_pop, color='gray', alpha=0.5, linewidth=4, label='Underlying Population')
-
+    # plt.plot(np.log10(pop_e), y_pop, color='gray', alpha=0.5, linewidth=4, label='Underlying Population')
     if e_samples is not None:
         sorted_e = np.sort(e_samples)
         y_vals = np.arange(1, len(sorted_e) + 1) / len(sorted_e)
         lbl = label if label else f'Sampled (N={len(e_samples)})'
         plt.plot(np.log10(sorted_e + 1e-20), y_vals, drawstyle='steps-post', linewidth=2.0, color='#e74c3c', label=lbl)
-
-    plt.xlabel(r'$\log_{10}(e_{final})$', fontsize=12)
+    plt.xlabel(r"$\log_{10}(e)$ @ 10Hz", fontsize=12)
     plt.ylabel('CDF', fontsize=12)
-    plt.title('Field BBH Eccentricity CDF', fontsize=14)
+    plt.title(f"Eccentricity of merging BBHs in LIGO band", fontsize=14)
     plt.legend()
     plt.grid(True, ls="--", alpha=0.6)
     plt.show()
 
 
+# --- FEATURE 2: Get Progenitor Population (Library) ---
+def get_merger_progenitor_population():
+    """
+    Returns the underlying simulated progenitor population (resampled by merger rate).
+    This represents the static library of systems that WILL merge, used to draw
+    future snapshots.
+
+    Each row represents a merger progenitor.
+    Columns: [acur, e_initial, e_final, Dl, rate, lifetime, tau]
+    Units: SI/Geometrized (a in meters, time in seconds).
+    """
+    model = _get_model()
+    return model.systemlist
+
+
+def plot_progenitor_sma_distribution(bins=50):
+    """
+    Plots the distribution of Semi-Major Axis (SMA) for the PROGENITOR population.
+    This shows the statistical distribution of merger progenitors in the static library,
+    distinct from what is visible in a snapshot.
+    """
+    model = _get_model()
+    if len(model.systemlist) == 0:
+        print("No data to plot.")
+        return
+
+    # Index 0 is SMA (acur) in meters
+    sma_au = model.systemlist[:, 0] / AU
+
+    plt.figure(figsize=(8, 6))
+    log_bins = np.logspace(np.log10(min(sma_au)), np.log10(max(sma_au)), bins)
+
+    plt.hist(sma_au, bins=log_bins, color='#3498db', alpha=0.7, edgecolor='black', label='Progenitor Population')
+    plt.xscale('log')
+    plt.xlabel('Semi-Major Axis [AU]', fontsize=12)
+    plt.ylabel('Count (Rate Weighted)', fontsize=12)
+    plt.title(f'SMA Distribution of Merger Progenitors (N={len(model.systemlist)})', fontsize=14)
+    plt.grid(True, which="both", ls="--", alpha=0.5)
+    plt.legend()
+    plt.show()
+
+
+# --- FEATURE 3: Snapshot Generation & Plotting ---
 def plot_lifetime_cdf():
     model = _get_model()
     lifetimes = model.systemlist[:, 5]
@@ -278,128 +377,94 @@ def plot_lifetime_cdf():
     age_Gyr = model.age / years / 1e9
     plt.axvline(x=age_Gyr, color='k', linestyle='--', alpha=0.5, label=f'Universe Age ({age_Gyr:.1f} Gyr)')
     plt.xscale('log')
-    plt.xlabel('Merger Time / Lifetime (Gyr)', fontsize=12)
+    plt.xlabel('Merger Time (Gyr)', fontsize=12)
     plt.ylabel('CDF (Probability)', fontsize=12)
-    plt.title(f'Field BBH Lifetime CDF (N={len(model.systemlist)})', fontsize=14)
+    plt.title(f'Merger Progenitor Lifetime CDF (N={len(model.systemlist)})', fontsize=14)
     plt.grid(True, which="both", ls="--", alpha=0.6)
     plt.legend(loc='upper left')
     plt.tight_layout()
     plt.show()
 
 
-def generate_snapshot(t_window_Gyr=10.0, num_realizations=20, tobs_yr=10.0):
-    """
-    Generates a snapshot of BBHs merging within t_window_Gyr.
-    Returns array with appended Num_Realizations.
-    Columns: [0:a_ini, 1:e_ini, 2:e_fin, 3:Dl, 4:rate, 5:lifetime, 6:tau, 7:curr_age, 8:a_curr, 9:e_curr, 10:SNR, 11:N_real]
-    """
+def get_single_mw_realization(t_window_Gyr=10.0, tobs_yr=10.0):
     model = _get_model()
-    rate_factor = model.totalrate * 1e3 * num_realizations
-    num_candidates = np.random.poisson(rate_factor * t_window_Gyr)
-
-    if num_candidates == 0 or len(model.systemlist) == 0:
-        return np.array([])
-
-    indices = np.random.choice(len(model.systemlist), size=num_candidates, replace=True)
-    events = model.systemlist[indices]
-
-    t_future = np.random.uniform(0, t_window_Gyr * 1e9, size=num_candidates) * years
-    surv_prob = np.exp(-t_future / events[:, 6])
-
-    accept_mask = np.random.random(num_candidates) < surv_prob
-    accepted = events[accept_mask]
-    t_accepted = t_future[accept_mask]
-
-    age_curr = accepted[:, 5] - t_accepted
-    valid = age_curr > 0
-    final_events = np.column_stack((accepted[valid], age_curr[valid]))
-
-    if len(final_events) == 0: return np.array([])
-
-    res_list = []
-    for row in final_events:
-        a0, e0, life_tot, age_now = row[0], row[1], row[5], row[7]
-        t_rem = life_tot - age_now
-
-        if e0 < 1e-8:
-            a_curr, e_curr = a0 * np.power(t_rem / life_tot, 0.25), e0
-        else:
-            c0 = a0 / peters_factor_func(e0)
-            try:
-                e_curr = brentq(lambda e: tmerger(model.m1, model.m2, c0 * peters_factor_func(e), e) - t_rem, 1e-16, e0,
-                                xtol=1e-12, maxiter=50)
-            except:
-                e_curr = 0.0
-            a_curr = c0 * peters_factor_func(e_curr)
-
-        snr = calculate_snr(model.m1, model.m2, a_curr, e_curr, row[3], tobs_yr * years)
-        res_list.append([a_curr, e_curr, snr])
-
-    # === NEW: Append num_realizations column ===
-    # Create a column vector where every element is num_realizations
-    n_real_col = np.full((len(final_events), 1), num_realizations)
-
-    # Combine: [Existing Data] + [a_curr, e_curr, snr] + [num_realizations]
-    evolvelist_final = np.column_stack((final_events, np.array(res_list), n_real_col))
-
-    return evolvelist_final
+    rate = model.totalrate * 1e3  # /Gyr
+    num = np.random.poisson(rate * t_window_Gyr)
+    if num == 0: return []
+    indices = np.random.choice(len(model.systemlist), size=num, replace=True)
+    return model._process_candidates(model.systemlist[indices], t_window_Gyr, tobs_yr)
 
 
-def plot_snapshot(snapshot_data, title="MW Field BBH Snapshot"):
-    if len(snapshot_data) == 0: return
+def get_multi_mw_realizations(n_realizations=10, t_window_Gyr=10.0, tobs_yr=10.0):
+    model = _get_model()
+    rate = model.totalrate * 1e3 * n_realizations
+    num = np.random.poisson(rate * t_window_Gyr)
+    if num == 0: return []
+    indices = np.random.choice(len(model.systemlist), size=num, replace=True)
+    return model._process_candidates(model.systemlist[indices], t_window_Gyr, tobs_yr)
 
-    # Cols: 8=a_curr, 9=e_curr, 10=SNR, 11=N_realizations
-    a, e, snr = snapshot_data[:, 8] / AU, snapshot_data[:, 9], snapshot_data[:, 10]
 
-    # Extract N_realizations
-    if snapshot_data.shape[1] > 11:
-        n_real = int(snapshot_data[0, 11])
-        title_str = f"{title}\n($N_{{systems}}$={len(snapshot_data)}, $N_{{realizations}}$={n_real})"
-    else:
-        title_str = f"{title}\n($N_{{systems}}$={len(snapshot_data)})"
+def get_random_systems(n_systems=500, t_window_Gyr=10.0, tobs_yr=10.0):
+    model = _get_model()
+    output_list = []
+    batch_size = n_systems * 2
+    attempts = 0
+    while len(output_list) < n_systems and attempts < 100:
+        indices = np.random.choice(len(model.systemlist), size=batch_size, replace=True)
+        batch_res = model._process_candidates(model.systemlist[indices], t_window_Gyr, tobs_yr)
+        output_list.extend(batch_res)
+        attempts += 1
+    return output_list[:n_systems]
+
+
+def plot_mw_field_bbh_snapshot(systems, title="Snapshot of Fly-by Induced BBH Merger Progenitors in MW Field",
+                               tobs_yr=10.0):
+    if not systems:
+        print("No systems to plot.")
+        return
+
+    data = np.array(systems)[:, 1:].astype(float)
+    a = data[:, 1]
+    e = data[:, 2]
+    snr = data[:, 5]
 
     idx = np.argsort(snr)[::-1]
+    a_p, ome_p, snr_p = a[idx], 1.0 - e[idx], snr[idx]
 
     plt.figure(figsize=(10, 8))
-    # Scatter plot
-    sc = plt.scatter(a[idx], 1.0 - e[idx], s=np.clip(np.sqrt(snr[idx]) * 20, 1, 200),
-                     c=np.clip(snr[idx], 1e-3, None), cmap=copy.copy(mpl.colormaps['jet']),
-                     norm=mcolors.LogNorm(vmin=0.1, vmax=200), edgecolors='k', linewidths=0.5)
+    sc = plt.scatter(a_p, ome_p,
+                     s=np.clip(np.sqrt(snr_p) * 20, 5, 300),
+                     c=np.clip(snr_p, 1e-3, None),
+                     cmap=copy.copy(mpl.colormaps['jet']),
+                     norm=mcolors.LogNorm(vmin=0.1, vmax=200),
+                     edgecolors='k', linewidths=0.5)
 
-    # Contours logic
     model = _get_model()
-    a_grid = np.logspace(np.log10(min(0.001, a.min())), np.log10(max(4e4, a.max())), 500) * AU
+    a_grid = np.logspace(np.log10(min(0.001, np.min(a_p))), np.log10(max(4e4, np.max(a_p))), 500) * AU
     K = (768 / 425) / (4 * (64 / 5 * model.m1 * model.m2 * (model.m1 + model.m2)))
 
-    # Flag to ensure we only add the label to the legend once
     added_legend = False
-
     for tyr, lbl in zip([1e10, 1e8, 1e6, 1e4], ['10Gyr', '0.1Gyr', '1Myr', '10kyr']):
         val = np.power(tyr * years / (K * a_grid ** 4), 2 / 7)
         valid = val <= 1.0
         if np.any(valid):
-            # Only label the first curve for the legend
-            label_text = "Merger Timescale" if not added_legend else "_nolegend_"
-
-            plt.plot(a_grid[valid] / AU, 1 - np.sqrt(1 - val[valid]), '--', color='gray', alpha=0.5, label=label_text)
+            lbl_text = "Merger Timescale" if not added_legend else "_nolegend_"
+            plt.plot(a_grid[valid] / AU, 1 - np.sqrt(1 - val[valid]), '--', color='gray', alpha=0.5, label=lbl_text)
             plt.text(a_grid[valid][-1] / AU, 1 - np.sqrt(1 - val[valid][-1]), lbl, fontsize=9, color='dimgray',
                      ha='left')
-
             added_legend = True
 
-    plt.xscale('log')
+    plt.xscale('log');
     plt.yscale('log')
-    plt.xlabel(r"Semi-major Axis $a$ [au]", fontsize=13)
-    plt.ylabel(r"$1-e$", fontsize=13)
-    #plt.xlim(0.001, 4e4)  # Keep limits consistent for better view
-    #plt.ylim(0.0008, 1)
+    plt.xlabel('Semi-major Axis [AU]', fontsize=13);
+    plt.ylabel('1 - e', fontsize=13)
 
-    cbar = plt.colorbar(sc, label='SNR (10yr LISA)')
-    plt.title(title_str, fontsize=14)
+    # Updated Colorbar with rotation and dynamic tobs label
+    cbar = plt.colorbar(sc)
+    cbar.set_label(f'SNR ({tobs_yr}yr LISA)', rotation=270, labelpad=20)
+
+    plt.title(f"{title} (N={len(systems)})", fontsize=14)
+    plt.legend(loc='lower left')
     plt.grid(True, which='both', ls='-', alpha=0.15)
-
-    # Add legend to show what the dashed lines mean
-    plt.legend(loc='lower left', fontsize=10, frameon=True)
-
     plt.tight_layout()
-    plt.show()  #
+    plt.show()
