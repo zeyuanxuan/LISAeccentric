@@ -113,7 +113,7 @@ def generate_ecc_samples_10Hz(channel_name, size=1000):
 
 def plot_ecc_cdf(e_list, label="Sample"):
     # MODIFICATION: Smaller figsize, Larger Fonts
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(6, 6))
 
     e_arr = np.array(e_list, dtype=float)
     valid = e_arr[e_arr > 0]
