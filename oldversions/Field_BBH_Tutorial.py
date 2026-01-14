@@ -51,7 +51,7 @@ Field_BBH.simulate_and_save_default_population(
     Rl=2.6e3 * Field_BBH.pc,  # Galaxy scale length [geometrized distance]
     h=1e3 * Field_BBH.pc,  # Galaxy scale height [geometrized distance]
     sigmav=50e3 / sciconsts.c,  # Velocity dispersion (v/c)
-    fbh=7.5e-4,  # Fraction of BHs in the stellar population
+    fbh=7.5e-4,  # Fraction of Wide BBHs in the stellar population
 
     # --- Formation History ---
     formation_mod='starburst',  # 'starburst' (instantaneous) or 'continuous'
@@ -173,3 +173,115 @@ Field_BBH.plot_mw_field_bbh_snapshot(
     title="BBH Merger Progenitors (Randomly Generated)",
     tobs_yr=t_obs
 )
+
+
+"\n An Extra Funtion (Not Fully Verified):"
+"""
+This script simulates Fly-by Induced BBH mergers in a realistic Giant Elliptical
+Galaxy (e.g., M87).
+"""
+from Field_modeling import Field_BBH_Elliptical
+
+# ==============================================================================
+# 1. Run Simulation with FULL Parameter Control
+# ==============================================================================
+print(">>> Running Simulation for Giant Elliptical (M87/NGC 4486)...")
+Field_BBH_Elliptical.simulate_and_save_default_population(
+    # A. GALAXY STRUCTURE (M87 Properties)
+    distance_Mpc=16.8,
+    # Total Stellar Mass [geometric units via m_sun].
+    M_gal=1.0e12 * Field_BBH.m_sun,
+    # Effective Radius (Half-light radius) [geometric units via pc].
+    Re=8.0 * 1000 * Field_BBH.pc,
+    # ----------------------------------------------------------------------
+    # B. BLACK HOLE & PERTURBER PHYSICS
+    # ----------------------------------------------------------------------
+    # Mass
+    m1=10 * Field_BBH.m_sun,
+    m2=10 * Field_BBH.m_sun,
+    # Mass of the typical perturber (e.g., average field star) [M_sun].
+    mp=0.6 * Field_BBH.m_sun,
+    # Fraction of stars that are in Wide Black Holes Binaries.
+    fbh=7.5e-4,
+    # Gravitational Wave Frequency Threshold [Hz].
+    # Used to define "merger" eccentricity and SMA (when it enters LIGO band).
+    fgw=10,
+    # ----------------------------------------------------------------------
+    # C. PROGENITOR POPULATION (Initial Conditions)
+    # ----------------------------------------------------------------------
+    # Semi-major Axis (SMA) Range [log10(a/AU)].
+    # [2, 4.5] corresponds to binaries with separations from 100 AU to ~31,600 AU.
+    # Wider binaries (larger a) are more susceptible to fly-by disruptions.
+    arange_log=[2, 4.5],
+    # Galaxy Formation History Model.
+    formation_mod='starburst',
+    # Age of the Galaxy [geometric units via years].
+    age=13e9 * Field_BBH.years,
+    # Radial Range [kpc].
+    rrange_kpc=[0.05, 100],
+    # Grid Resolution (Number of log Radial Bins).
+    blocknum=60,
+    # Monte Carlo Sample Size.
+    n_sim_samples=100000,
+    # Output Sample Size.
+    target_N=50000
+)
+
+print("\n>>> Analyzing Results...")
+
+# --- 2.1 Eccentricity CDF (LIGO Band) ---
+print("   [1/4] Generating Eccentricity Distribution...")
+# Generate samples explicitly
+ell_e_samples = Field_BBH_Elliptical.generate_eccentricity_samples(size=10000)
+print(f"         Mean Eccentricity: {np.mean(ell_e_samples):.4f}")
+
+# Plot CDF
+if len(ell_e_samples) > 0:
+    Field_BBH_Elliptical.plot_eccentricity_cdf(
+        ell_e_samples,
+        label="M87 (Giant Elliptical)"
+    )
+
+# --- 2.2 Progenitor SMA Distribution ---
+print("   [2/4] Plotting Progenitor SMA Distribution...")
+# This shows which initial semi-major axes contribute most to the merger rate.
+Field_BBH_Elliptical.plot_progenitor_sma_distribution(bins=50)
+
+# --- 2.3 Lifetime CDF ---
+print("   [3/4] Plotting Merger Delay Time CDF...")
+# Shows how long it takes for these fly-by induced systems to merge.
+Field_BBH_Elliptical.plot_lifetime_cdf()
+
+# --- 2.4 Snapshot Plot (LISA Band Analysis) ---
+print("   [4/4] Generating LISA Band Snapshot...")
+
+# A. Single Realization (Poisson Sample)
+# Simulates what we would see in ONE snapshot of M87 today.
+print("      > Generating Single M87 Realization...")
+t_obs_LISA = 10.0 # 10 years observation
+single_gal_sys = Field_BBH_Elliptical.get_single_realization(t_window_Gyr=10.0, tobs_yr=t_obs_LISA)
+
+if len(single_gal_sys) > 0:
+    print(f"         Found {len(single_gal_sys)} observable systems in this realization.")
+    Field_BBH_Elliptical.plot_snapshot(
+        single_gal_sys,
+        title="Snapshot: Single M87 Realization (d=16.8 Mpc)",
+        tobs_yr=t_obs_LISA
+    )
+else:
+    print("         No observable systems found in this specific realization (Poisson fluctuation or low SNR).")
+
+# B. Forced Random Sample (Phase Space Map)
+# Generates a fixed number of systems regardless of rate/Poisson noise,
+# ensuring we can visualize the a vs (1-e) phase space structure.
+print("      > Generating Forced Phase Space Map (N=500)...")
+random_sys = Field_BBH_Elliptical.get_random_systems(n_systems=10000, t_window_Gyr=10.0, tobs_yr=t_obs_LISA)
+
+if len(random_sys) > 0:
+    Field_BBH_Elliptical.plot_snapshot(
+        random_sys,
+        title="Phase Space Distribution (M87 Progenitors)",
+        tobs_yr=t_obs_LISA
+    )
+
+print("\nTutorial Completed.")
