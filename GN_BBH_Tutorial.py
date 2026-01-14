@@ -106,6 +106,6 @@ print(f"Generating snapshot for Young Nuclear Star Cluster: Age = {age_ync/1e6} 
 snapshot_data = GN_BBH.generate_snapshot_population(Gamma_rep=rate_gn, ync_age=age_ync, ync_count=N_ync_sys)
 print(f"Altogether {len(snapshot_data)} systems survived.")
 print(f"Example output: {snapshot_data[:2]}")
-GN_BBH.plot_snapshot_population(snapshot_data, title=f"Mock BBH Population Snapshot in Milky Way GN")
+GN_BBH.plot_snapshot_population(snapshot_data, title=f"Simulated MW Galactic Nucleus BBH Population")
 
 
