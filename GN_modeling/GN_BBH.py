@@ -29,12 +29,16 @@ def GWtime(m1, m2, a1, e1):
     if e1 >= 1.0 or a1 <= 0: return 0.0
     factor = 1.6e13
     return factor * (2 / m1 / m2 / (m1 + m2)) * np.power(a1 / 0.1, 4.0) * np.power(1 - e1 * e1, 7 / 2)
+
+
 def peters_factor_func(e):
     if e < 1e-10: return 0.0
     term1 = np.power(e, 12.0 / 19.0)
     term2 = 1.0 - e * e
     term3 = np.power(1.0 + (121.0 / 304.0) * e * e, 870.0 / 2299.0)
     return (term1 / term2) * term3
+
+
 def solve_ae_after_time(m1, m2, a0, e0, dt):
     current_life = GWtime(m1, m2, a0, e0)
     if dt >= current_life:
@@ -48,6 +52,8 @@ def solve_ae_after_time(m1, m2, a0, e0, dt):
         e_curr = e0
     a_curr = c0 * peters_factor_func(e_curr)
     return a_curr, e_curr
+
+
 # ==========================================
 # 3. SNR Calculation Functions
 # ==========================================
@@ -57,6 +63,8 @@ def S_gal_N2A5(f):
     if f >= np.power(10, -2.7) and f < np.power(10, -2.4): return np.power(f, -8.8) * np.power(10, -62.8) * 20.0 / 3.0
     if f >= np.power(10, -2.4) and f <= 0.01: return np.power(f, -20.0) * np.power(10, -89.68) * 20.0 / 3.0
     return 0
+
+
 def S_n_lisa(f):
     L_param = 5.0e9
     f_transfer = sciconsts.c * 0.41 / L_param / 2.0
@@ -66,6 +74,8 @@ def S_n_lisa(f):
     term_resp = (1 + np.power(f / f_transfer, 2.0))
     Sn = 20.0 / 3.0 * term_resp * (term_acc + P_oms + P_acc) / np.power(L_param, 2.0)
     return Sn + S_gal_N2A5(f)
+
+
 def SNR_analytical_geo(m1_sol, m2_sol, a_au, e, tobs_yr, Dl_kpc):
     if a_au <= 0 or e >= 1.0: return 0.0
     m1_s = m1_sol * m_sun_sec
@@ -85,7 +95,7 @@ def SNR_analytical_geo(m1_sol, m2_sol, a_au, e, tobs_yr, Dl_kpc):
 
 
 # ==========================================
-# 4. Data Management Class (Lazy Loading)
+# 4. Data Management Class (Lazy Loading & Filtering)
 # ==========================================
 
 class _GNBBHInternalManager:
@@ -98,9 +108,26 @@ class _GNBBHInternalManager:
         self.raw_data_gn = None
         self.raw_data_ync = None
 
+        # Filtering State
+        self.current_max_mass = 100.0  # Default Threshold
+
         self.efinal_inv_cdf = None
         self.sorted_efinal_for_plot = None
         self.merged_indices = []
+
+    def check_and_update_threshold(self, new_max_mass):
+        """
+        Public functions call this first.
+        If the requested mass threshold differs from what is currently loaded,
+        clear the cache to force a reload and re-filter.
+        """
+        if abs(self.current_max_mass - new_max_mass) > 1e-6:
+            # print(f"[Manager] Threshold changed ({self.current_max_mass} -> {new_max_mass}). Reloading data...")
+            self.current_max_mass = new_max_mass
+            self.raw_data_gn = None
+            self.raw_data_ync = None
+            self.merged_indices = []
+            self.efinal_inv_cdf = None
 
     def _ensure_gn_loaded(self):
         if self.raw_data_gn is None:
@@ -112,15 +139,27 @@ class _GNBBHInternalManager:
             self._load_data(self.file_path_ync, is_ync=True)
 
     def _load_data(self, path, is_ync=False):
+        """
+        Loads data and IMMEDIATELY filters out systems where m1 or m2 > self.current_max_mass.
+        """
         label = "YNC" if is_ync else "GN"
         if os.path.exists(path):
-            #print(f"[{label}_BBH] Loading data from {path}...")
+            # 1. Load raw data
             data = np.load(path, allow_pickle=True)
+            original_len = len(data)
+
+            # 2. Filter data based on current_max_mass
+            # Columns: 1 is m1, 2 is m2
+            if len(data) > 0:
+                mask = (data[:, 1] <= self.current_max_mass) & (data[:, 2] <= self.current_max_mass)
+                data = data[mask]
+
+            # print(f"[{label}_BBH] Loaded and filtered (Max M={self.current_max_mass}): {len(data)}/{original_len} systems.")
+
             if is_ync:
                 self.raw_data_ync = data
             else:
                 self.raw_data_gn = data
-            #print(f"[{label}_BBH] Loaded {len(data)} systems.")
         else:
             print(f"[Warning] File {path} not found.")
             if is_ync:
@@ -129,6 +168,7 @@ class _GNBBHInternalManager:
                 self.raw_data_gn = []
 
     def _build_merger_statistics(self):
+        # Operates on already filtered self.raw_data_gn
         if len(self.raw_data_gn) == 0: return
         e_vals = []
         indices = []
@@ -161,10 +201,10 @@ class _GNBBHInternalManager:
 
     def generate_snapshot_objects(self, Gamma_rep, ync_age=None, ync_count=0):
         """
-        Generates the mwGNsnapshot list directly.
-        Format: [[Label, Distance, a, e, m1, m2, SNR], ...]
+        Logic remains identical to original source code.
+        Data is already filtered at load time.
         """
-        # Ensure data is loaded
+        # Ensure data is loaded (filtered by current threshold)
         if Gamma_rep > 0: self._ensure_gn_loaded()
         if ync_count > 0: self._ensure_ync_loaded()
 
@@ -178,9 +218,7 @@ class _GNBBHInternalManager:
             if res is not None:
                 # res is (a, e, m1, m2)
                 a, e, m1, m2 = res
-                # Calculate SNR immediately
                 snr = SNR_analytical_geo(m1, m2, a, e, Tobs_yr, dist_kpc)
-                # Append structured list: [Label, Dist(kpc), SMA, e, m1, m2, SNR]
                 mwGNsnapshot.append([label, dist_kpc, a, e, m1, m2, snr])
 
         # --- 1. GN Steady State ---
@@ -190,18 +228,16 @@ class _GNBBHInternalManager:
             window_myr = t_final_max / 1e6
             total_systems_to_gen = int(window_myr * Gamma_rep)
 
-            #(f"[Snapshot] Generating GN SteadyState: ~{total_systems_to_gen} systems...")
             birth_times = np.random.uniform(-t_final_max, 0, total_systems_to_gen)
             template_indices = np.random.randint(0, len(self.raw_data_gn), total_systems_to_gen)
 
             for i in range(total_systems_to_gen):
                 sys_idx = template_indices[i]
-                t_start = birth_times[i]  # negative
+                t_start = birth_times[i]
                 process_and_add(self.raw_data_gn[sys_idx], -t_start, 'GN_Steadystate')
 
         # --- 2. YNC ---
         if self.raw_data_ync is not None and len(self.raw_data_ync) > 0 and ync_count > 0 and ync_age is not None:
-            #print(f"[Snapshot] Generating YNC: {ync_count} systems at Age {ync_age / 1e6} Myr...")
             ync_indices = np.random.randint(0, len(self.raw_data_ync), int(ync_count))
             for sys_idx in ync_indices:
                 process_and_add(self.raw_data_ync[sys_idx], ync_age, 'GN_YNC')
@@ -225,6 +261,7 @@ class _GNBBHInternalManager:
                 t_last, a_last, e_last = times[-1], snaps_arr[-1, 1], snaps_arr[-1, 2]
                 dt = current_age - t_last
                 if dt > 0:
+
                     a_curr, e_curr = solve_ae_after_time(m1, m2, a_last, e_last, dt)
                 else:
                     a_curr, e_curr = a_last, e_last
@@ -242,22 +279,29 @@ _manager = _GNBBHInternalManager()
 # 5. Public API Functions
 # ==========================================
 
-def generate_random_merger_eccentricities(n=1000):
-    """Returns random merged eccentricities."""
+def generate_random_merger_eccentricities(n=1000, max_bh_mass=100.0):
+    """
+    Returns random merged eccentricities.
+    Filter: m1, m2 <= max_bh_mass (default 100).
+    """
+    _manager.check_and_update_threshold(max_bh_mass)
     return _manager.generate_ecc_from_cdf(n)
 
 
-def plot_ecc_cdf_log(e_list=None):
-    """Plots CDF of log(e)."""
-    # Triggers load if needed via manager properties if e_list is None
+def plot_ecc_cdf_log(e_list=None, max_bh_mass=100.0):
+    """
+    Plots CDF of log(e).
+    If e_list is None, loads data using max_bh_mass filter.
+    """
     if e_list is None:
+        _manager.check_and_update_threshold(max_bh_mass)
         _manager._ensure_gn_loaded()
         if not hasattr(_manager, 'sorted_efinal_for_plot'): return
         data = _manager.sorted_efinal_for_plot
-        label = "GN Mergers Samples"
+        label = f"GN Mergers (M<{max_bh_mass})"
     else:
         data = np.array(e_list)
-        label = "GN Mergers Sample"
+        label = "Sample"
 
     valid_mask = data > 1e-50
     if np.sum(valid_mask) == 0: return
@@ -277,11 +321,13 @@ def plot_ecc_cdf_log(e_list=None):
     plt.show()
 
 
-def get_random_merger_systems(n=10):
+def get_random_merger_systems(n=10, max_bh_mass=100.0):
     """
     Returns N random merger systems as a list of parameters.
+    Filter: m1, m2 <= max_bh_mass (default 100).
     Format: [m1, m2, ai, ei, i_i, a2, afinal, efinal, t_final]
     """
+    _manager.check_and_update_threshold(max_bh_mass)
     raw_sys = _manager.get_random_mergers(n)
     result = []
     for s in raw_sys:
@@ -291,11 +337,13 @@ def get_random_merger_systems(n=10):
     return result
 
 
-def generate_snapshot_population(Gamma_rep=3.0, ync_age=None, ync_count=0):
+def generate_snapshot_population(Gamma_rep=3.0, ync_age=None, ync_count=0, max_bh_mass=100.0):
     """
     Generates the snapshot object list.
+    Filter: m1, m2 <= max_bh_mass (default 100) applied at load time.
     Returns: list of [label, dist, a, e, m1, m2, snr]
     """
+    _manager.check_and_update_threshold(max_bh_mass)
     return _manager.generate_snapshot_objects(Gamma_rep, ync_age, ync_count)
 
 
@@ -347,7 +395,7 @@ def plot_snapshot_population(mwGNsnapshot, title="MW Galactic Nucleus BBH Snapsh
     plt.show()
 
 
-def generate_and_plot_snapshot(Gamma_rep=3.0, ync_age=None, ync_count=0, title="MW Snapshot"):
-    """Wrapper to generate and plot in one go (Legacy support for tutorial)."""
-    snap = generate_snapshot_population(Gamma_rep, ync_age, ync_count)
+def generate_and_plot_snapshot(Gamma_rep=3.0, ync_age=None, ync_count=0, max_bh_mass=100.0, title="MW Snapshot"):
+    """Wrapper to generate and plot in one go."""
+    snap = generate_snapshot_population(Gamma_rep, ync_age, ync_count, max_bh_mass=max_bh_mass)
     plot_snapshot_population(snap, title)
