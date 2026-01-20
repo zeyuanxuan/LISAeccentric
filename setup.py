@@ -4,7 +4,7 @@ from setuptools.command.develop import develop
 import os
 import shutil
 import glob
-
+import sys
 
 # ==============================================================================
 # 1. Cache Cleaning Logic
@@ -13,6 +13,7 @@ def clean_numba_cache():
     """
     Recursively delete all __pycache__ folders and Numba cache files (*.nbc, *.nbi).
     This prevents path mismatch errors when the package is moved or reinstalled.
+    Uses .format() instead of f-strings to ensure setup.py parses on older Python versions.
     """
     print("\n[Setup] Cleaning up old Numba caches and __pycache__...")
 
@@ -25,20 +26,32 @@ def clean_numba_cache():
             cache_path = os.path.join(root, '__pycache__')
             try:
                 shutil.rmtree(cache_path)
-                print(f"  - Removed directory: {cache_path}")
+                print("  - Removed directory: {}".format(cache_path))
             except Exception as e:
-                print(f"  ! Failed to remove {cache_path}: {e}")
+                print("  ! Failed to remove {}: {}".format(cache_path, e))
 
     # 2. Remove Numba compiled cache files (*.nbc, *.nbi)
     # These often cause issues across different environments or paths
     extensions = ['*.nbc', '*.nbi']
     for ext in extensions:
-        for file_path in glob.glob(os.path.join(root_dir, 'LISAeccentric', '**', ext), recursive=True):
+        # Use glob to find files recursively
+        # Note: recursive=True in glob requires Python 3.5+
+        if sys.version_info >= (3, 5):
+            files_to_remove = glob.glob(os.path.join(root_dir, 'LISAeccentric', '**', ext), recursive=True)
+        else:
+            # Fallback for very old python (just in case)
+            files_to_remove = []
+            for root, dirs, files in os.walk(os.path.join(root_dir, 'LISAeccentric')):
+                for file in files:
+                    if file.endswith(ext[1:]):
+                         files_to_remove.append(os.path.join(root, file))
+
+        for file_path in files_to_remove:
             try:
                 os.remove(file_path)
-                print(f"  - Removed cache file: {file_path}")
+                print("  - Removed cache file: {}".format(file_path))
             except Exception as e:
-                print(f"  ! Failed to remove {file_path}: {e}")
+                print("  ! Failed to remove {}: {}".format(file_path, e))
 
     print("[Setup] Cleanup complete.\n")
 
@@ -81,7 +94,7 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     author="Zeyuan",
-    author_email="your_email@example.com",  # Replace with your email
+    author_email="your_email@example.com",  # Remember to update this if needed
 
     # Automatically find all packages (directories with __init__.py)
     packages=find_packages(),
@@ -102,10 +115,13 @@ setup(
         "matplotlib>=3.4.0",
         "pandas>=1.3.0",
         "numba>=0.55.0",
+        # KEY CHANGE: Install backport if Python is older than 3.7
+        'dataclasses>=0.6;python_version<"3.7"',
     ],
 
     # Python version requirement
-    python_requires=">=3.8",
+    # KEY CHANGE: Lowered to 3.6 to support older clusters
+    python_requires=">=3.6",
 
     # Data Inclusion Strategy
     include_package_data=True,
@@ -121,6 +137,10 @@ setup(
 
     classifiers=[
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Topic :: Scientific/Engineering :: Astronomy",
