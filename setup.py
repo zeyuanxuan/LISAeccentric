@@ -108,19 +108,18 @@ setup(
         'develop': CustomDevelop,
     },
 
-    # Dependencies
+    # Dependencies (Downgraded for Python 3.6 Compatibility)
     install_requires=[
-        "numpy>=1.20.0",
-        "scipy>=1.7.0",
-        "matplotlib>=3.4.0",
-        "pandas>=1.3.0",
-        "numba>=0.55.0",
-        # KEY CHANGE: Install backport if Python is older than 3.7
+        "numpy>=1.19.0",      # Python 3.6 support dropped in 1.20.0
+        "scipy>=1.5.0",       # Python 3.6 support dropped in 1.6.0
+        "matplotlib>=3.3.0",  # Python 3.6 support dropped in 3.4.0
+        "pandas>=1.1.0",      # Python 3.6 support dropped in 1.2.0
+        "numba>=0.53.0",      # Python 3.6 support dropped in 0.54.0
+        # Install dataclasses backport only if Python is older than 3.7
         'dataclasses>=0.6;python_version<"3.7"',
     ],
 
     # Python version requirement
-    # KEY CHANGE: Lowered to 3.6 to support older clusters
     python_requires=">=3.6",
 
     # Data Inclusion Strategy
