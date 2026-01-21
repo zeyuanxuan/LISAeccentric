@@ -97,11 +97,11 @@ setup(
 
     # Dependencies
     install_requires=[
-        "numpy>=1.21.0",  # 足够新，且兼容性好
-        "scipy>=1.7.0",  # 涵盖绝大多数物理计算需求
-        "matplotlib>=3.5.0",  # 必须，为了支持 .colormaps API
-        "pandas>=1.4.0",  # 关键修改！避开 2.x 的编译坑，除非你显式用了 2.0 新特性
-        "numba>=0.56.0",  # 足够支持 Python 3.9/3.10
+        "numpy>=1.21.0",
+        "scipy>=1.7.0",
+        "matplotlib>=3.5.0",
+        "pandas>=1.4.0",
+        "numba>=0.56.0",
     ],
 
 
