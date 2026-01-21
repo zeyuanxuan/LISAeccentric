@@ -5,7 +5,7 @@
 
 **LISAeccentric** is a Python toolkit for generating eccentric compact binary populations and computing their gravitational wave signals in the LISA band. It supports population synthesis, waveform computation, and signal analysis, including:
 #### BBH Population Catalogs
-* **Galactic Nuclei (GN)**: SMBH-perturbed mergers (steady-state & starburst), based on [e.g., Naoz et al., Your GN Ref].
+* **Galactic Nuclei (GN)**: SMBH-perturbed mergers (steady-state & starburst), based on [e.g., Naoz et al., ....].
 * **Globular Clusters (GC)**: Dynamically formed BBHs, including in-cluster and ejected mergers, based on Kremer et al. (2020) and Zevin et al. (2020).
 * **Galactic Field**: Fly-by–induced mergers in Milky Way–like and elliptical galaxies, based on Michaely & Perets (2019) and Xuan et al. (2024).
 
@@ -22,19 +22,37 @@
 
 You can install `LISAeccentric` directly from GitHub without manually downloading or unzipping files. Please choose the method that matches your environment.
 
-### Method 1: Jupyter Notebook / Google Colab (Recommended)
+#### Method 1: Jupyter Notebook / Google Colab (Recommended)
 If you are working in a notebook (Jupyter, Colab, Kaggle), run the following command in a code cell. 
 ```python
 !pip install https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
 ```
-### Method 2: Terminal / Command Line
-If you are using a standard terminal, run the command without the !.
+#### Method 2: Terminal / Command Line
+If you are using a standard terminal, run the command without the !
 ```python
 pip install https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
 ```
 **Note:** for Mac/Linux: If pip command is not found or defaults to Python 2, try using pip3 instead: 
 ```
 pip3 install https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
+```
+#### Method 3: University Clusters / HPC
+If you are running jobs on a cluster using existing Python modules (like `module load python/3.9.6`), **load the same module before installing.**
+
+Step 1: Load the Python module you intend to use in your job script
+```bash
+# Example: If your submission script uses python/3.9.6, load it now:
+module load python/3.9.6
+```
+Step 2: Install the package with --user. This installs the package into your local directory specific to that Python version (e.g., ~/.local/lib/python3.9/site-packages).
+```
+python3 -m pip install --user https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
+```
+Step 3: Run your job
+```
+# In your job script (.sh/.pbs):
+module load python/3.9.6
+python your_script.py
 ```
 
 ## Features & Usage Examples
