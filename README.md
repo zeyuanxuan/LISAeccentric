@@ -11,10 +11,11 @@
 
 #### Waveform & Signal Analysis
 * Generate PN-based, time-domain waveforms for eccentric binaries.
-* Evolve orbital parameters throughout the inspiral.
-* Compute LISA detector response (TDI).
-* Calculate signal-to-noise ratio (SNR) and waveform inner products.
-* Evaluate characteristic strain ($h_c$) and stochastic background.
+* Evolve orbital parameters throughout the inspiral stage.
+* Compute LISA detector response (Michelson response).
+* Evaluate characteristic strain ($h_c$) and stochastic backgrounds.
+* Calculate signal-to-noise ratio (SNR) and noise-weighted inner products for time-domain waveforms.
+
 
 ---
 
@@ -24,31 +25,31 @@ You can install `LISAeccentric` directly from GitHub without manually downloadin
 
 #### Method 1: Jupyter Notebook / Google Colab (Recommended)
 If you are working in a notebook (Jupyter, Colab, Kaggle), run the following command in a code cell. 
-```python
-!pip install https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
+```
+!pip install https://github.com/zeyuanxuan/LISAeccentric/archive/refs/heads/main.zip
 ```
 #### Method 2: Terminal / Command Line
 If you are using a standard terminal, run the command without the !
-```python
-pip install https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
+```
+pip install https://github.com/zeyuanxuan/LISAeccentric/archive/refs/heads/main.zip
 ```
 **Note:** for Mac/Linux: If pip command is not found or defaults to Python 2, try using pip3 instead: 
 ```
-pip3 install https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
+pip3 install https://github.com/zeyuanxuan/LISAeccentric/archive/refs/heads/main.zip
 ```
 #### Method 3: University Clusters / HPC
 If you are running jobs on a cluster using existing Python modules (like `module load python/3.9.6`), **load the same module before installing.**
 
 Step 1: Load the Python module you intend to use in your job script
-```bash
+```
 # Example: If your submission script uses python/3.9.6, load it now:
 module load python/3.9.6
 ```
 Step 2: Install the package with --user. This installs the package into your local directory specific to that Python version (e.g., ~/.local/lib/python3.9/site-packages).
 ```
-python3 -m pip install --user https://github.com/zeyuanxuanphy/LISAeccentric/archive/refs/heads/main.zip
+python3 -m pip install --user https://github.com/zeyuanxuan/LISAeccentric/archive/refs/heads/main.zip
 ```
-Step 3: Run your job
+Step 3: Import LISAeccentric in your code and run your job
 ```
 # In your job script (.sh/.pbs):
 module load python/3.9.6
