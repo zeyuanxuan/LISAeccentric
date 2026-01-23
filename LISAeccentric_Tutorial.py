@@ -215,6 +215,7 @@ else:
         m1=30.0, m2=30.0, a=0.5, e=0.9, Dl=8.0, label="Manual_Test"
     )
 
+
 # --- 4.1 Generate Waveform ---
 # Goal: Compute the h_plus and h_cross polarizations in the Source Frame.
 # Note: Input can be individual parameters OR the CompactBinary object.
@@ -226,10 +227,17 @@ waveform = LISAeccentric.Waveform.compute_waveform_system(
     phi=np.pi/4,
     PN_orbit=3,         # Post-Newtonian order for orbit
     PN_reaction=2,      # Post-Newtonian order for radiation reaction
+    l0=-sciconsts.pi*np.power(1-target_sys.e,3/2)*15,    # shift the position of the first burst for demonstration purpose
     plot=True
 )
 # Unpack results: [time_array, h_plus, h_cross]
 t_vec, h_plus, h_cross = waveform[0], waveform[1], waveform[2]
+
+fig1=plt.figure(figsize=(8,6))
+plt.plot(t_vec[:1000],h_plus[:1000])
+plt.xlabel('t [s]')
+plt.ylabel('h')
+plt.show()
 
 # --- 4.2 LISA Response ---
 # Goal: Compute the detector response (Strain) considering LISA's arm motion.
@@ -289,7 +297,7 @@ LISAeccentric.Waveform.compute_characteristic_strain_single(
 print("\n[4.6] Characteristic Strain (Population Batch)")
 if len(gn_snapshot) > 0:
     # Use top 100 systems for demonstration speed
-    batch_list = gn_snapshot[:100]
+    batch_list = gn_snapshot
     LISAeccentric.Waveform.run_population_strain_analysis(
         binary_list=batch_list,
         tobs_years=4.0,
