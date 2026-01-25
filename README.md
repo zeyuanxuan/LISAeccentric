@@ -1,21 +1,30 @@
 # LISAeccentric
 **Xuan et al. (2026)**
 
-## Overview
+## 📖 Overview
 
 **LISAeccentric** is a Python toolkit for generating eccentric compact binary populations and computing their gravitational wave signals in the LISA band. It supports population synthesis, waveform computation, and signal analysis, including:
-#### BBH Population Catalogs
-* **Galactic Nuclei (GN)**: SMBH-perturbed mergers (steady-state & starburst), based on [e.g., Naoz et al., ....].
-* **Globular Clusters (GC)**: Dynamically formed BBHs, including in-cluster and ejected mergers, based on Kremer et al. (2020) and Zevin et al. (2020).
-* **Galactic Field**: Fly-by–induced mergers in Milky Way–like and elliptical galaxies, based on Michaely & Perets (2019) ...
 
-#### Waveform & Signal Analysis
+### 📂 BBH Population Catalogs
+
+* 🌌 **Galactic Nuclei (GN)**: SMBH-perturbed mergers (steady-state & starburst)
+    * *Based on:* Hoang et al. 2018 ApJ 856 140; Xuan et al. 2024 ApJ 965 148; Stephan et al. 2019 ApJ 878 58
+
+* ✨ **Globular Clusters (GC)**: Dynamically formed BBHs, including in-cluster and ejected mergers
+    * *Based on:*
+        * **Eccentricity Distributions:** Zevin et al. (2020), ApJ 903 67
+        * **MW GC Populations:** Kremer et al. (2020), ApJS 247 48; Xuan et al. (2024), ApJL 985 L42
+
+* 🌠 **Galactic Field**: Fly-by–induced mergers in Milky Way–like and elliptical galaxies
+    * *Based on:* Michaely & Perets (2019) [ApJL 887 L36]; Raveh et al. (2022) [MNRAS 514.4246R]; Michaely & Naoz (2022) [ApJ 936 184]; Xuan et al. (2024) [ApJ 965 148]
+
+### 🛠 Waveform & Signal Analysis
+
 * Generate PN-based, time-domain waveforms for eccentric binaries.
 * Evolve orbital parameters throughout the inspiral stage.
 * Compute LISA detector response (Michelson response).
 * Evaluate characteristic strain ($h_c$) and stochastic backgrounds.
 * Calculate signal-to-noise ratio (SNR) and noise-weighted inner products for time-domain waveforms.
-
 
 ---
 
