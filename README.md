@@ -76,9 +76,6 @@ LISAeccentric.set_output_control(verbose=False, show_warnings=False)
 ### 2. CompactBinary Core (Object-Oriented API)
 The fundamental unit of the package. This class handles the physics, evolution, and I/O for a single binary system.
 
-### 2. CompactBinary Core (Object-Oriented API)
-The fundamental unit of the package. This class handles the physics, evolution, and I/O for a single binary system.
-
 #### `LISAeccentric.CompactBinary()`
 To create a binary system object:
 * **Input**:
@@ -96,23 +93,19 @@ my_binary = LISAeccentric.CompactBinary(
     m1=10.0, m2=10.0, a=0.26, e=0.985, Dl=8.0, 
     label="Tutorial_Core_Obj",
     extra={
-        'snr': 25.4, 
         'inclination': 0.7854,  # [rad] (~45 degrees)
-        'lifetime_yr': 1.5e5
     }
 )
 print(f"   Output Object: {my_binary}")
 print(f"   Type Inspection: {type(my_binary)}")
 # You can also access extra data directly
-print(f"   SNR: {my_binary.extra['snr']}")
 print(f"   Inclination: {my_binary.extra['inclination']:.4f} rad")
 ```
 * **Output**:
   ```
- Output Object: <CompactBinary [Tutorial_Core_Obj]: M=10.0+10.0 m_sun, a=2.600e-01AU, e=0.9850, Dl=8.0kpc | snr=25.400, inclination=0.785, lifetime_yr=1.50e+05>
- Type Inspection: <class 'LISAeccentric.core.CompactBinary'>
- SNR: 25.4
- Inclination: 0.7854 rad
+   Output Object: <CompactBinary [Tutorial_Core_Obj]: M=10.0+10.0 m_sun, a=2.600e-01AU, e=0.9850, Dl=8.0kpc | inclination=0.785>
+   Type Inspection: <class 'LISAeccentric.core.CompactBinary'>
+   Inclination: 0.7854 rad
   ```
 
 #### `.compute_merger_time()`
@@ -288,20 +281,42 @@ print(f"   Mean Eccentricity: {np.mean(gn_e_samples)}")
   <img src="./images/GNecc_LIGO.png" width="500">
    </p>
 #### `LISAeccentric.GN.get_progenitor()`
-Retrieves the properties of the binary progenitors (initial states) from the underlying population catalog. These are the systems *before* they evolve to merger.
+Retrieves the properties of the binary progenitors (initial states) from the underlying population catalog (BBH in GN, orbiting around a SMBH with M = 4e6 msun). These are the systems *before* they evolve to merger.
 * **Input**:
     * `n_inspect` (int, optional): Number of random systems to retrieve for inspection. Default is 3.
 * **Output**:
     * A list of `CompactBinary` objects representing the progenitor systems.
+    * **Note**: The objects contain detailed GN evolutionary parameters in their `extra` attributes (e.g., outer orbit SMA `a2`, eccentricity `e2`, initial inclination `i`, and total `lifetime_yr`).
 
 **Example:**
 ```python
-# --- 1.2 Inspect Progenitor Population ---
-print("\n[1.2] Inspecting Progenitor Initial States")
-print("   Input: n_inspect=3")
-
-# Returns: List of CompactBinary objects
 gn_progenitors = LISAeccentric.GN.get_progenitor(n_inspect=3)
 print(f"   Output List Length: {len(gn_progenitors)}")
-if len(gn_progenitors) > 0:
-    print(f"   Sample Item: {gn_progenitors[0]}")
+print(f"   Sample Item: {gn_progenitors[0]}")
+```
+* **Output**:
+    ```
+   Output List Length: 3
+   Sample Item: <CompactBinary [GN_Progenitor]: M=50.6+25.7 m_sun, a=3.395e-01AU, e=0.9278, Dl=8.0kpc | e2_init=0.505, i_init_rad=2.167, a2_init=1.57e+04, a_final=1.45e-05, e_final=3.04e-06, lifetime_yr=1.03e+08>
+    ```
+#### `LISAeccentric.GN.get_snapshot()`
+Generates a snapshot of the BBH population currently in the GN. This includes systems from both the steady-state formation channel and a recent starburst event (Young Nuclear Cluster, YNC).
+* **Input**:
+    * `rate_gn` (float, optional): Merger rate for the steady-state channel [Myr$^{-1}$]. Default is 2.0.
+    * `age_ync` (float, optional): Age of the Young Nuclear Cluster [yr]. Default is 6.0e6.
+    * `n_ync_sys` (int, optional): Number of systems to simulate for the YNC channel. Default is 100.
+    * `max_bh_mass` (float, optional): Maximum Black Hole mass to consider [$M_\odot$]. Default is 50.
+    * `plot` (bool, optional): If `True`, plots the snapshot population ($1-e$ vs. $a$, color-coded by SNR).
+* **Output**:
+    * A list of `CompactBinary` objects representing the surviving LISA sources, typically sorted by SNR.
+
+**Example:**
+```python
+gn_snapshot = LISAeccentric.GN.get_snapshot(
+    rate_gn=2.0, age_ync=6.0e6, n_ync_sys=100, max_bh_mass=50.0, plot=True
+)
+```
+    <p align="left">
+  <img src="./images/GNsnapshot.png" width="500">
+   </p>
+
