@@ -73,7 +73,7 @@ Sets the global verbosity and warning suppression levels.
 LISAeccentric.set_output_control(verbose=False, show_warnings=False)
 ```
 
-### 2. CompactBinary Core (Object-Oriented API)
+### 2. CompactBinary Class
 The fundamental unit of the package. This class handles the physics, evolution, and I/O for a single binary system.
 
 #### `LISAeccentric.CompactBinary()`
@@ -144,6 +144,25 @@ print(f"      Return Value: {snr_val:.4f} (Type: float)")
 * **Output**:
   ```
       Return Value: 10.9644 (Type: float)
+  ```
+
+#### `.compute_fpeak()`
+Calculates the peak gravitational wave frequency ($f_{\rm peak}$) for the eccentric binary using the Wen (2003) approximation. For highly eccentric systems, the GW power peaks at a frequency significantly higher than the orbital frequency: $f_{\rm peak} \approx f_{\rm orb} \frac{(1+e)^{1.1954}}{(1-e)^{1.5}}$.
+
+* **Input**:
+    * `verbose` (bool, optional): Controls standard output printing. Default is `True`.
+* **Output**:
+    * `f_peak` (float): Peak GW frequency [Hz].
+    * **Note**: The result is also stored in `self.extra['f_peak_Hz']`.
+
+**Example:**
+```python
+f_peak = my_binary.compute_fpeak(verbose=False)
+print(f"      Return Value: {f_peak:.4e} [Hz] (Type: float)")
+```
+* **Output**:
+  ```
+       Return Value: 1.3205e-03 [Hz] (Type: float)
   ```
 
 #### `.evolve_orbit()`
@@ -255,6 +274,7 @@ Methods to convert `CompactBinary` objects to and from list formats, facilitatin
     ```
 ### 3. Population analysis
 #### 3.1 Galactic Nuclei (GN)
+This module models Binary Black Holes formed dynamically in the Milky Way galactic nuclei (due to the perturbation of the central supermassive black hole). It is based on detailed three-body simulations.
 #### ` LISAeccentric.GN.sample_eccentricities()`
 Randomly samples $N$ merger eccentricities for BBHs formed in Galactic Nuclei, defined at the LIGO frequency band (10Hz).
 * **Input**:
@@ -277,16 +297,17 @@ print(f"   Mean Eccentricity: {np.mean(gn_e_samples)}")
     Output Shape: (5000,)
     Mean Eccentricity: 3.791297808628803e-05
     ```
-    <p align="left">
-  <img src="./images/GNecc_LIGO.png" width="500">
-   </p>
+<p align="left">
+<img src="./images/GNecc_LIGO.png" width="500">
+</p>
+
 #### `LISAeccentric.GN.get_progenitor()`
 Retrieves the properties of the binary progenitors (initial states) from the underlying population catalog (BBH in GN, orbiting around a SMBH with M = 4e6 msun). These are the systems *before* they evolve to merger.
 * **Input**:
     * `n_inspect` (int, optional): Number of random systems to retrieve for inspection. Default is 3.
 * **Output**:
     * A list of `CompactBinary` objects representing the progenitor systems.
-    * **Note**: The objects contain detailed GN evolutionary parameters in their `extra` attributes (e.g., outer orbit SMA `a2`, eccentricity `e2`, initial inclination `i`, and total `lifetime_yr`).
+    * **Note**: The objects contain detailed GN evolutionary parameters in their `extra` attributes (e.g., outer orbit SMA `a2`, eccentricity `e2`, initial mutal orbit inclination `i`, and total `lifetime_yr`).
 
 **Example:**
 ```python
@@ -300,7 +321,7 @@ print(f"   Sample Item: {gn_progenitors[0]}")
    Sample Item: <CompactBinary [GN_Progenitor]: M=50.6+25.7 m_sun, a=3.395e-01AU, e=0.9278, Dl=8.0kpc | e2_init=0.505, i_init_rad=2.167, a2_init=1.57e+04, a_final=1.45e-05, e_final=3.04e-06, lifetime_yr=1.03e+08>
     ```
 #### `LISAeccentric.GN.get_snapshot()`
-Generates a snapshot of the BBH population currently in the GN. This includes systems from both the steady-state formation channel and a recent starburst event (Young Nuclear Cluster, YNC).
+Generates a snapshot of the BBH population currently in the GN. This includes systems from both the steady-state formation channel and a recent starburst event (Young Nuclear Cluster, YNC). The results can be changed by adjusting the BBH formation rate in the steady-state population and the age and total BBH number in the YNC population.
 * **Input**:
     * `rate_gn` (float, optional): Merger rate for the steady-state channel [Myr$^{-1}$]. Default is 2.0.
     * `age_ync` (float, optional): Age of the Young Nuclear Cluster [yr]. Default is 6.0e6.
@@ -308,13 +329,157 @@ Generates a snapshot of the BBH population currently in the GN. This includes sy
     * `max_bh_mass` (float, optional): Maximum Black Hole mass to consider [$M_\odot$]. Default is 50.
     * `plot` (bool, optional): If `True`, plots the snapshot population ($1-e$ vs. $a$, color-coded by SNR).
 * **Output**:
-    * A list of `CompactBinary` objects representing the surviving LISA sources, typically sorted by SNR.
+    * A list of `CompactBinary` objects representing the BBHs in the Milky Way center, typically sorted by SNR.
 
 **Example:**
 ```python
 gn_snapshot = LISAeccentric.GN.get_snapshot(
     rate_gn=2.0, age_ync=6.0e6, n_ync_sys=100, max_bh_mass=50.0, plot=True
 )
+print(f"   Output List Length: {len(gn_snapshot)} systems")
+```
+* **Output**:
+    ```
+   Output List Length: 1806 systems
+    ```
+<p align="left">
+<img src="./images/GNsnapshot0.png" width="500">
+</p>
+
+### 3.2 Globular Clusters (GC)
+This module models Binary Black Holes formed dynamically in Milky Way globular clusters. It supports sampling from specific dynamic formation channels (e.g., Kozai-Lidov triples, binary-single captures) based on detailed Monte Carlo N-body simulations.
+
+#### `LISAeccentric.GC.sample_eccentricities()`
+Randomly samples $N$ merger eccentricities for GC BBHs at the LIGO frequency band (10Hz).
+* **Input**:
+    * `n` (int): Number of eccentricity samples to generate.
+    * `channel_name` (str): Specific formation channel.
+        * `'Incluster'`: Weighted average of all in-cluster channels (default).
+        * `'Ejected'`: Mergers occurring after ejection.
+        * **Sub-channels**: Supports specific dynamical channels such as `'KL Triple'`, `'Non-KL Triple'`, `'Single Capture'`, `'Fewbody Capture'`.
+    * `plot` (bool, optional): If `True`, plots the CDF of $\log_{10}(e)$.
+* **Output**:
+    * `gc_e_samples` (NumPy Array): A 1D array containing the sampled eccentricity values at 10Hz.
+
+**Example:**
+```python
+gc_e_samples = LISAeccentric.GC.sample_eccentricities(
+    n=5000, channel_name='KL Triple', plot=True
+)
+print(f"   Output Shape: {np.shape(gc_e_samples)}")
+```
+* **Output**:
+    ```
+   Output Shape: (5000,)
+    ```
+<p align="left">
+<img src="./images/GCecc_LIGO.png" width="500">
+</p>
+
+#### `LISAeccentric.GC.get_snapshot()`
+Retrieves a snapshot of the GC BBH population in the Milky Way. This method supports three retrieval modes to allow for different scales of analysis (full ensemble vs. single galaxy realization).
+* **Input**:
+    * `mode` (str): Data selection mode.
+        * `'10_realizations'`: Returns the full catalog from 10 MW realizations (~2300 systems).
+        * `'single'`: Returns data from a single MW realization (randomly selected subset, ~230 systems).
+        * `'random'`: Returns a specific number of randomly selected systems.
+    * `n_random` (int, optional): Number of systems to retrieve (only used if `mode='random'`). Default is 500.
+    * `plot` (bool, optional): If `True`, plots the snapshot ($1-e$ vs $a$).
+* **Output**:
+    * A list of `CompactBinary` objects.
+    * **Warning**: The underlying catalog represents a finite set of simulations (~230 systems per realization). If `n_random` exceeds the size of a single realization, the returned sample will inevitably mix systems from different stochastic realizations. Due to the small sample size of the MC N-body source catalog, these samples may not be strictly statistically independent.
+
+**Example:**
+```python
+gc_data_full = LISAeccentric.GC.get_snapshot(mode='10_realizations', plot=True)
+print(f"   Output List Length: {len(gc_data_full)}")
+```
+* **Output**:
+    ```
+   Output List Length: 2325
+    ```
+<p align="left">
+<img src="./images/GCsnapshot.png" width="500">
+</p>
+
+### 3.2 Galactic Field (Field)
+This module models Binary Black Holes mergers formed via dynamic fly-by interactions in galactic field environments. It supports simulations for both Milky Way-like (disk) galaxies and Elliptical galaxies.
+
+#### `LISAeccentric.Field.run_simulation()`
+Executes a Monte Carlo simulation to generate a population of fly-by mergers based on specific galactic structure and physical parameters. The results are saved to disk for subsequent analysis (sampling/snapshotting).
+
+* **Input**:
+    * `galaxy_type` (str, optional): Target environment `'MW'` (Milky Way) or `'Elliptical'`. Default: `'MW'`.
+    * **Physics Parameters**:
+        * `m1`, `m2`, `mp` (float, optional): Masses of the binary components and perturber [$M_\odot$]. Default: `10`, `10`, `0.6`.
+        * `fbh` (float, optional): Fraction of stars that are wide binary black holes. Default: `7.5e-4`.
+        * `fgw` (float, optional): Gravitational wave frequency for getting the eccentricity distribution (default 10Hz, LIGO band). Default: `10`.
+        * `formation_mod` (str, optional): Star formation history model (e.g., `'starburst'`, `'continuous'`). Default: `'starburst'`.
+    * **Structure Parameters (MW)**:
+        * `n0` (float, optional): Stellar number density normalization in the solar neighborhood [pc$^{-3}$]. Default: `0.1`.
+        * `rsun` (float, optional): Distance of the solar system to the Galactic center [pc]. Default: `8000.0` (8e3).
+        * `Rl`, `h` (float, optional): Galactic scale lengths (Radial length, Vertical height) [pc]. Default: `2600.0`, `1000.0`.
+        * `sigmav` (float, optional): Velocity dispersion [m/s]. Default: `50000.0` (50e3).
+        * `age_mw` (float, optional): Age of the MW galaxy [years]. Default: `10e9`.
+    * **Structure Parameters (Elliptical)**:
+        * `M_gal` (float, optional): Total mass of the galaxy [$M_\odot$]. Default: `1.0e12`.
+        * `Re` (float, optional): Effective radius (half-light radius) [pc]. Default: `8000.0`.
+        * `distance_Mpc` (float, optional): Distance to the galaxy [Mpc]. Default: `16.8`.
+        * `age_ell` (float, optional): Age of the elliptical galaxy [years]. Default: `13e9`.
+    * **Control**:
+        * `arange_log` (list, optional): Range of BBH semi-major axis $\log_{10}(a)$ to sample [min, max] in au. Default: `[2, 4.5]`.
+        * **For MW**:
+            * `n_sim_samples` (int, optional): Total number of MC trials. Default: `200000`.
+            * `target_N` (int, optional): Target number of successful mergers to accumulate. Default: `100000`.
+            * `rrange_mw` (list, optional): Radial range for simulation [min, max] in kpc. Default: `[0.5, 15]`.
+        * **For Elliptical**:
+            * `ell_n_sim` (int, optional): Total number of MC trials. Default: `100000`.
+            * `ell_target_N` (int, optional): Target number of successful mergers to accumulate. Default: `50000`.
+            * `rrange_ell` (list, optional): Radial range for simulation [min, max] in kpc. Default: `[0.05, 100]`.
+* **Output**:
+    * `None`. (Results are saved internally to `data/` directory).
+
+**Example:**
+```python
+LISAeccentric.Field.run_simulation(
+    galaxy_type='MW',
+    # Physics (Optional overrides)
+    m1=10.0, m2=10.0, mp=0.6, 
+    fbh=7.5e-4, fgw=10.0,
+    formation_mod='starburst',
+    # Structure (Optional overrides)
+    n0=0.1, rsun=8000.0, Rl=2600.0, h=1000.0, sigmav=50000.0,
+    # Control (Optional overrides)
+    n_sim_samples=200000, target_N=100000, rrange_mw=[0.5, 15]
+)
+print("   Status: Simulation completed and saved.")
 ```
 
+#### `LISAeccentric.Field.get_progenitor()`
+Retrieves the properties of the binary progenitors (initial states at formation) from the simulated library. These represent the system parameters right after being perturbed to high eccentricity and start evolving via GW emission. 
 
+* **Input**:
+    * `galaxy_type` (str, optional): Target environment `'MW'` (Milky Way) or `'Elliptical'`. Default: `'MW'`.
+    * `plot` (bool, optional): If `True`, plots the initial semi-major axis distribution and the merger lifetime CDF. Default: `True`.
+* **Output**:
+    * A list of `CompactBinary` objects representing the progenitor systems. The length of the list equals `target_N` when running the galaxy simulation.
+    * **Note**: These objects contain detailed simulation statistics in their `extra` attributes, including:
+        * `merger_rate`: Effective merger rate weight for this system.
+        * `lifetime_yr`: Total time from formation to merger.
+        * `e_final_LIGO`: Eccentricity when entering the LIGO band.
+
+**Example:**
+```python
+field_progs = LISAeccentric.Field.get_progenitor(galaxy_type='MW', plot=True)
+print(f"   Output List Length: {len(field_progs)}")
+```
+* **Output**:
+    ```
+   Output List Length: 50000
+    ```
+<p align="left">
+<img src="./images/Field_sma.png" width="500">
+</p>
+<p align="left">
+<img src="./images/Field_lifetime.png" width="500">
+</p>
