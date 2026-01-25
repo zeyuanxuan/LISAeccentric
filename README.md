@@ -8,15 +8,15 @@
 ### 📂 BBH Population Catalogs
 
 * 🌌 **Galactic Nuclei (GN)**: SMBH-perturbed mergers (steady-state & starburst)
-    * *Based on:* Hoang et al. (2018), [ApJ 856 140]; Xuan et al. (2024a), [ApJ 965 148]; Stephan et al. (2019), [ApJ 878 58]
+    * *Based on:* Hoang et al. (2018) [ApJ 856 140]; Xuan et al. (2024a) [ApJ 965 148]; Stephan et al. (2019) [ApJ 878 58]
 
 * ✨ **Globular Clusters (GC)**: Dynamically formed BBHs, including in-cluster and ejected mergers
     * *Based on:*
-        * **Eccentricity Distributions:** Zevin et al. (2020), [ApJ 903 67]
-        * **MW GC Populations:** Kremer et al. (2020), [ApJS 247 48]; Xuan et al. (2025b), [ApJL 985 L42]
+        * **Eccentricity Distributions:** Zevin et al. (2020) [ApJ 903 67]
+        * **MW GC Populations:** Kremer et al. (2020) [ApJS 247 48]; Xuan et al. (2025b) [ApJL 985 L42]
 
 * 🌠 **Galactic Field**: Fly-by–induced mergers in Milky Way–like and elliptical galaxies
-    * *Based on:* Michaely & Perets (2019), [ApJL 887 L36]; Raveh et al. (2022), [MNRAS 514.4246R]; Michaely & Naoz (2022), [ApJ 936 184]; Xuan et al. (2024a), [ApJ 965 148]
+    * *Based on:* Michaely & Perets (2019) [ApJL 887 L36]; Raveh et al. (2022) [MNRAS 514.4246R]; Michaely & Naoz (2022) [ApJ 936 184]; Xuan et al. (2024a) [ApJ 965 148]
 
 ### 🛠 Waveform & Signal Analysis
 
