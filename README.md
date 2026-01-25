@@ -912,3 +912,91 @@ else:
 <img src="./images/background.png" width="500">
 </p>
 
+### 5. Noise Management
+This module allows users to customize the LISA sensitivity curve used across the package. It supports generating specific noise models (e.g., N2A5 with galactic foregrounds) and converting them into characteristic strain for visualization.
+
+#### `LISAeccentric.Noise.generate_noise_data()`
+Generates synthetic noise Amplitude Spectral Density (ASD) data based on a specified model.
+* **Input**:
+    * `model` (str): The noise model to generate.
+        * `'N2A5'`: Includes a specific realization of the galactic confusion noise foreground.
+        * `'official'` : Loads the standard LISA Science Requirements Document sensitivity.
+    * `f_min`, `f_max` (float, optional): Frequency bounds [Hz]. Default: `1e-5`, `1.0`.
+* **Output**:
+    * `f_new` (NumPy Array): Frequency array [Hz].
+    * `asd_new` (NumPy Array): Amplitude Spectral Density [$\sqrt{Hz}^{-1}$].
+
+**Example:**
+```python
+f_new, asd_new = LISAeccentric.Noise.generate_noise_data(
+    model='N2A5', f_min=1e-5, f_max=1.0
+)
+print(f"   Generated Data: {len(f_new)} points.")
+print(f"   Freq Range: [{f_new[0]:.1e}, {f_new[-1]:.1e}] Hz")
+noise_char_strain = asd_new * np.sqrt(f_new)
+# Plotting Characteristic Strain
+plt.figure(figsize=(8, 5))
+plt.loglog(f_new, noise_char_strain, label='N2A5 Model (Characteristic)', 
+           color='darkred', linewidth=2)
+plt.title("LISA Sensitivity Curve (Characteristic Strain)")
+plt.xlabel("Frequency [Hz]", fontsize=12)
+plt.ylabel(r"Characteristic Strain $\sqrt{f S_n(f)}$", fontsize=12)
+plt.grid(True, which='both', linestyle='--', alpha=0.5)
+plt.legend()
+plt.show()
+```
+* **Output**:
+    ```
+   Generated Data: 3000 points.
+   Freq Range: [1.0e-05, 1.0e+00] Hz
+    ```
+<p align="left">
+<img src="./images/N2A5.png" width="500">
+</p>
+
+#### `LISAeccentric.Noise.update_noise_curve()`
+Updates the global noise data used by the `Waveform` module for SNR and Inner Product calculations. (Original one will be saved automatically with index 1,2,3...)
+* **Input**:
+    * `data` (list): `[frequency_array, asd_array]`.
+      
+**Example:**
+```python
+# Execution: Inject the new noise curve into the global system
+LISAeccentric.Noise.update_noise_curve([f_new, asd_new])
+```
+#### `LISAeccentric.Noise.recover_noise_curve()`
+Reverts the global noise configuration to a previous state or a standard preset.
+* **Input**:
+    * `version` (int or str):
+        * If `int` (e.g., `1`): Reverts to a specific backup file ID (e.g., `LISA_Noise_1.npy`).
+        * If `'official'`: Reverts to the default/official LISA sensitivity curve.
+        * If `'N2A5'`: Reverts to N2A5 backup.
+          
+**Example:**
+```python
+LISAeccentric.Noise.recover_noise_curve(version=1)
+```
+
+#### `LISAeccentric.Noise.get_noise_curve()`
+Retrieves the currently active noise data for inspection.
+* **Input**:
+    * `plot` (bool, optional): If `True`, plots the current Characteristic Strain.
+* **Output**:
+    * A list `[frequency_array, characteristic_strain_array]`.
+      
+**Example:**
+```python
+curve_data = LISAeccentric.Noise.get_noise_curve(plot=True)
+```
+* **Output**:
+<p align="left">
+<img src="./images/official.png" width="500">
+</p>
+
+#### `LISAeccentric.Noise.clean_backups()`
+Removes all temporary noise backup files created during the session.
+
+**Example:**
+```python
+LISAeccentric.Noise.clean_backups()
+```
