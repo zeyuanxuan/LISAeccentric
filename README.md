@@ -233,6 +233,7 @@ wf_data_obj = my_binary.compute_waveform(
 
 #### `.compute_characteristic_strain()`
 Computes the characteristic strain spectrum ($h_c$) for the binary system by decomposing the signal into orbital harmonics.
+* **Note:** This fast calculation method assumes the binary's evolution is negilible during the observation.
 * **Input**:
     * `tobs_yr` (float): Integration time in years.
     * `plot` (bool, optional): If `True`, generates a spectrum plot.
@@ -242,7 +243,6 @@ Computes the characteristic strain spectrum ($h_c$) for the binary system by dec
         * `[1] hc_spectrum`: Time-integrated Spectrum Amplitude ($h_{c,\rm avg}$), representing the accumulated signal over $T_{\rm obs}$.
         * `[2] harmonics`: Instantaneous characteristic strain ($h_{c,n}$) for each harmonic.
         * `[3] snr_contrib`: Contribution to noise power spectral density ($S_n(f)$) at harmonic frequencies.
-* **Note:** The calculation assumes the binary's evolution is slow during the observation.
   
 **Example:**
 ```python
@@ -250,7 +250,71 @@ strain_res_list = my_binary.compute_characteristic_strain(tobs_yr=4.0, plot=True
 ```
 * **Output**:
 <p align="left">
-  <img src="./images/characteristic.png" width="500">
+  <img src="./images/characteristic_strain.png?v=2" width="500">
+</p>
+
+#### `.compute_characteristic_strain_evolve()`
+Computes the **time-evolving** characteristic strain spectrum ($h_c$) by integrating the signal along the binary's evolutionary track (using Peters 1964 equations). This method captures the "chirping" of harmonics across the frequency band.
+* **Note:** Unlike the static method, this handles significant orbital evolution (chirping) during the observation window.
+* **Input**:
+    * `tobs_yr` (float): Integration time in years.
+    * `target_n_points` (int, optional): Number of harmonics to track for visualization (default: 100). Ignored if `all_harmonics=True`.
+    * `all_harmonics` (bool, optional):
+        * `False` (Default): Uses optimized high-density sampling for spectrum integration and sparse sampling for plotting tracks. Fast and visually clear.
+        * `True`: Forces calculation of *all* integer harmonics within the band for tracks. Slower but rigorous.
+    * `plot` (bool, optional): If `True`, generates a plot showing both the instantaneous harmonic tracks and the total integrated spectrum.
+
+* **Output**:
+    * A list of 4 elements: `[freq, hc_spectrum, snapshots, snr]`.
+        * `[0] freq`: Unified Frequency Axis [Hz] (log-spaced).
+        * `[1] hc_spectrum`: Total Time-integrated Characteristic Strain ($h_{c,\rm avg}$) accumulated over $T_{\rm obs}$.
+        * `[2] snapshots`: A list of dictionaries, where each dictionary represents the system's state at a specific time step (containing `t`, `f_orb`, `e`, `hnc`, etc.).
+        * `[3] snr`: The integrated Signal-to-Noise Ratio (SNR) calculated from the spectrum.
+**Example:**
+```python
+my_binary_evolve = LISAeccentric.CompactBinary(
+    m1=1e5,      # Primary Mass [M_sun]
+    m2=30.0,     # Secondary Mass [M_sun]
+    a=0.26,      # Semi-major Axis [AU]
+    e=0.9,       # Eccentricity
+    Dl=765.0,    # Luminosity Distance [kpc]
+    label="Evolving_Source_Example"
+)
+evolve_res = my_binary_evolve.compute_characteristic_strain_evolve(
+    tobs_yr=0.5,
+    target_n_points=50,
+    all_harmonics=False,
+    plot=True,
+    verbose=True
+)
+if evolve_res is not None:
+    f_axis, hc_total, snapshots, snr = evolve_res
+    print(f"\n   Output Inspection (List of 4 Elements):")
+    print(f"      [0] Unified Frequency Axis (shape: {f_axis.shape})")
+    print(f"          - Range: {f_axis[0]:.1e} Hz to {f_axis[-1]:.1e} Hz")
+    print(f"      [1] Total Integrated Strain (h_c) (shape: {hc_total.shape})")
+    print(f"          - Peak Amplitude: {np.max(hc_total):.4e}")
+    print(f"      [2] Snapshots List (Length: {len(snapshots)})")
+    print(f"          - Contains time-step details (t, f_orb, e, n, hnc...)")
+    print(f"          - Example Keys: {list(snapshots[0].keys()) if len(snapshots)>0 else 'Empty'}")
+    print(f"      [3] Integrated SNR (float)")
+    print(f"          - Value: {snr:.4f}")
+```
+* **Output**:
+  ```
+   Output Inspection (List of 4 Elements):
+      [0] Unified Frequency Axis (shape: (2000,))
+          - Range: 1.0e-06 Hz to 1.0e+00 Hz
+      [1] Total Integrated Strain (h_c) (shape: (2000,))
+          - Peak Amplitude: 7.4468e-18
+      [2] Snapshots List (Length: 100)
+          - Contains time-step details (t, f_orb, e, n, hnc...)
+          - Example Keys: ['t', 'f_orb', 'n', 'freq', 'hnc']
+      [3] Integrated SNR (float)
+          - Value: 8069.5495
+  ```
+<p align="left">
+  <img src="./images/hc_evolve.png" width="500">
 </p>
 
 #### `.to_list()` `.from_list()`
