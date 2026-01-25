@@ -593,10 +593,10 @@ init_phase = -5*np.pi * np.power(1 - e_val, 1.5)
 waveform_data = LISAeccentric.Waveform.compute_waveform(
     # --- System Params ---
     m1_msun=10.0, m2_msun=10.0,
-    a_au=0.1, e=e_val,          # <--- Input represents SMA, a = 1 au
+    a_au=0.1, e=e_val,          # <--- When input_mode= 'a_au' (default), input represents SMA: a = 1 au
     Dl_kpc=8.0, 
     input_mode='a_au',
-    tobs_yr=0.1,
+    tobs_yr=0.5,
     initial_orbital_phase=init_phase,
     theta=np.pi/4, phi=np.pi/4,
     PN_orbit=3, PN_reaction=2,
@@ -608,19 +608,20 @@ waveform_data_B = LISAeccentric.Waveform.compute_waveform(
     m1_msun=10.0, m2_msun=10.0,
     a_au=1e-5, e=0.7,  # <--- 2nd Example: When input_mode='forb_Hz', input 'a_au' actually represents orbital frequency (f_orb =1e-5 Hz) 
     Dl_kpc=8.0, tobs_yr=0.1,
-    input_mode='forb_Hz', ts = 10, # <--- 2nd Example: ts will turn off adaptive sampling and fix the sample rate of the waveform as one point per 10 s
+    input_mode='forb_Hz', ts = 10, # <--- 2nd Example: ts will turn off adaptive sampling and fix the sample interval of the waveform as 10 sec.
     plot=False
+)
 ```
 * **Output**:
 <p align="left">
-<img src="./images/egwaveform0.png" width="500">
+<img src="./images/egwaveform_original.png" width="500">
 </p>
 
 #### Data Inspection & Visualization
 After generation, it is crucial to verify the data structure, calculate the sampling interval ($\Delta t$), and visualize the waveform details (e.g., the bursty structure at periastron).
 
 * **Key Step**: Calculate `dt` from the first two time points (`t[1] - t[0]`).
-* **Visualization**: Plotting a subset (e.g., first 1000 points) allows for a quick check of the polarization phases.
+* **Visualization**: Plotting a subset (e.g., first 500 points) allows for a quick check of the polarization phases.
 
 **Example:**
 ```python
@@ -651,12 +652,263 @@ After generation, it is crucial to verify the data structure, calculate the samp
 ```
 * **Output**:
     ```
-     Output Structure: List of 3 Numpy Arrays
-      t_vec shape : (707819,)
-      h_plus shape: (707819,)
-      h_cross shape: (707819,)
-   Sample time dt   : 4.4554e+00 seconds (Passed to next step)
+    Output Structure: List of 3 Numpy Arrays
+    t_vec shape : (3535099,)
+    h_plus shape: (3535099,)
+    h_cross shape: (3535099,)
+    Sample time dt    : 4.4604e+00 seconds (Passed to next step)
     ```
 <p align="left">
-<img src="./images/egwaveform0.png" width="500">
+<img src="./images/egwaveform1.png" width="500">
 </p>
+Computes the Time-Delay Interferometry (TDI) response (specifically the $X$ channel or equivalent michelson response) for the LISA constellation. This function projects the $h_+$ and $h_\times$ polarizations onto the detector arms, accounting for the antenna pattern and time delays.
+
+#### `LISAeccentric.Waveform.compute_LISA_response()`
+* **Input**:
+    * `dt_sample_sec` (float): Sampling interval of the input waveform [s].
+    * `hplus`, `hcross` (NumPy Arrays): The input waveform polarizations.
+    * **Source Location (Ecliptic Coordinates)**:
+        * `theta_sky` (float): Sky Polar angle (co-latitude) of the source relative to the solar system [rad].
+        * `phi_sky` (float): Azimuthal angle (relative to the solar system) [rad].
+    * `psi_sky` (float): Polarization rotation [rad].
+    * `timeshift_sec` (float, optional): Initial time shift applied to the signal [s]. Default: 0.0.
+    * `plot` (bool, optional): If `True`, plots the detector response.
+* **Output**:
+    * A list containing two NumPy arrays: `[time_vector, response_signal]`.
+
+**Example:**
+```python
+lisa_resp = LISAeccentric.Waveform.compute_LISA_response(
+    dt_sample_sec=dt_val_sec,
+    hplus=h_plus,
+    hcross=h_cross,
+    theta_sky=1.0, phi_sky=2.0, psi_sky=0.5,
+    timeshift_sec=100.0,
+    plot=True
+)
+
+if lisa_resp is not None:
+    t_resp, y_resp = lisa_resp[0], lisa_resp[1]
+    print(f"   Output Structure: List of 2 Arrays (Time, Response)")
+    print(f"   Max Response Amplitude: {np.max(np.abs(y_resp)):.4e}")
+```
+* **Output**:
+    ```
+   Output Structure: List of 2 Arrays (Time, Response)
+   Max Response Amplitude: 1.2626e-20
+    ```
+<p align="left">
+<img src="./images/response0.png" width="500">
+</p>
+
+#### `LISAeccentric.Waveform.compute_snr_analytical()`
+Sky-averaged SNR, assuming the source evolves slowly.
+* **Input**:
+    * `m1_msun`, `m2_msun` (float): Component masses [$M_\odot$].
+    * `a_au` (float): Semi-major axis [AU].
+    * `e` (float): Eccentricity.
+    * `Dl_kpc` (float): Luminosity distance [kpc].
+    * `tobs_yr` (float): Observation time [years].
+* **Output**:
+    * `snr` (float): Estimated SNR value.
+```python
+snr_ana = LISAeccentric.Waveform.compute_snr_analytical(
+    m1_msun=10.0, m2_msun=10.0,
+    a_au=0.1, e=0.99,
+    Dl_kpc=8.0, tobs_yr=0.5,
+)
+print(f"   [Analytical] SNR ~ {snr_ana:.4f}")
+```
+* **Output**:
+    ```
+     [Analytical] SNR ~ 354.9420
+    ```
+    
+#### `LISAeccentric.Waveform.compute_snr_numerical()`
+Computes SNR directly from the time-domain waveform array. Valid for arbitrary signals.
+* **Input**:
+    * `dt_sample_sec` (float): Sampling interval [s].
+    * `strainlist` (NumPy Array): The waveform array (e.g., `h_plus` or detector response).
+* **Output**:
+    * `snr` (float): Calculated SNR value.
+
+**Example:**
+```python
+    snr_num = LISAeccentric.Waveform.compute_snr_numerical(
+        dt_sample_sec=dt_val_sec,
+        strainlist=h_plus
+    )
+    print(f"   [Numerical]  SNR ~ {snr_num:.4f}")
+```
+* **Output**:
+    ```
+   [Numerical]  SNR ~ 283.0686
+    ```
+
+#### `LISAeccentric.Waveform.compute_inner_product()`
+Computes the noise-weighted inner product $\langle h_1 | h_2 \rangle$ between two time-domain waveforms using the LISA sensitivity curve $S_n(f)$. This is the fundamental operation for matched filtering, overlap calculations, and determining signal orthogonality.
+
+$$\langle h_1 | h_2 \rangle = 4 \Re \int_{f_{\min}}^{f_{\max}} \frac{\tilde{h}_1^*(f) \tilde{h}_2(f)}{S_n(f)} df$$
+
+* **Input**:
+    * `dt_sample_sec` (float): Sampling interval [s].
+    * `h1`, `h2` (NumPy Arrays): Time-domain signal arrays (must have the same length).
+* **Output**:
+    * `inner_prod` (float): The calculated inner product value.
+
+**Example:**
+```python
+inner_prod = LISAeccentric.Waveform.compute_inner_product(
+    dt_sample_sec=dt_val_sec, 
+    h1=h_plus, 
+    h2=h_plus
+)
+print(f"   Inner Product Value: {inner_prod:.4e}")
+print(f"   Sqrt(Inner Product): {np.sqrt(inner_prod):.4f} (Should match Numerical SNR)")
+```
+* **Output**:
+    ```
+   Inner Product Value: 8.0128e+04
+   Sqrt(Inner Product): 283.0686 (Should match Numerical SNR)
+    ```
+
+#### `LISAeccentric.Waveform.compute_merger_time()`
+* **Input**:
+    * `m1_msun`, `m2_msun` (float): Component masses [$M_\odot$].
+    * `a0_au` (float): Initial semi-major axis [au].
+    * `e0` (float): Initial eccentricity.
+* **Output**:
+    * `t_merge` (float): Time to merger in years. Returns `inf` if the system is stable or parameters are invalid.
+
+**Example:**
+```python
+t_merge = LISAeccentric.Waveform.compute_merger_time(
+    m1_msun=10.0, m2_msun=10.0,
+    a0_au=0.1, e0=0.99
+)
+print(f"   Merger Time: {t_merge:.4e} yr")
+```
+* **Output**:
+    ```
+   Merger Time: 2.6811e+04 yr
+    ```
+#### `LISAeccentric.Waveform.evolve_orbit()`
+* **Input**:
+    * `m1_msun`, `m2_msun` (float): Component masses [$M_\odot$].
+    * `a0_au` (float): Initial semi-major axis [au].
+    * `e0` (float): Initial eccentricity.
+    * `delta_t_yr` (float): The time duration to evolve forward [years].
+* **Output**:
+    * `a_final` (float): Evolved semi-major axis [au].
+    * `e_final` (float): Evolved eccentricity.
+
+**Example:**
+```python
+    dt_evol = t_merge / 2.0
+    print(f"   Evolving forward by {dt_evol:.2e} yr...")
+
+    a_ev, e_ev = LISAeccentric.Waveform.evolve_orbit(
+        m1_msun=10.0, m2_msun=10.0,
+        a0_au=0.1, e0=0.99,
+        delta_t_yr=dt_evol
+    )
+    print(f"   Result: a={a_ev:.4e} AU, e={e_ev:.6f}")
+```
+* **Output**:
+    ```
+   Evolving forward by 1.34e+04 yr...
+   Result: a=3.4600e-02 AU, e=0.971288
+    ```
+
+
+#### `LISAeccentric.Waveform.compute_characteristic_strain_single()`
+Computes the characteristic strain $h_c(f)$ of a single eccentric binary system. This function decomposes the signal into orbital harmonics, representing the signal strength relative to the LISA sensitivity curve in the frequency domain.
+* **Input**:
+    * `m1_msun`, `m2_msun` (float): Component masses [$M_\odot$].
+    * `a_au` (float): Semi-major axis [AU].
+    * `e` (float): Eccentricity.
+    * `Dl_kpc` (float): Luminosity distance [kpc].
+    * `tobs_yr` (float): Integration time [years].
+    * `plot` (bool, optional): If `True`, plots the characteristic strain spectrum against the LISA sensitivity curve.
+* **Output**:
+    * A `list` containing 4 NumPy arrays:
+        1.  `f_list`: Frequency bins [Hz] corresponding to the harmonics.
+        2.  `hc_integrated`: Time-integrated characteristic strain spectrum (amplitude).
+        3.  `hc_instant`: Instantaneous $h_c$ value for each harmonic peak.
+        4.  `sn_contribution`: The signal's contribution to the Noise Power Spectral Density ($S_n(f)$).
+
+**Example:**
+```python
+# --- 4.8 Characteristic Strain (Functional) ---
+hc_res = LISAeccentric.Waveform.compute_characteristic_strain_single(
+    m1_msun=10.0, m2_msun=10.0,
+    a_au=0.1, e=0.99, Dl_kpc=8.0,
+    tobs_yr=0.5, plot=True
+)
+
+strain_res_list = hc_res
+if isinstance(strain_res_list, list) and len(strain_res_list) == 4:
+    print(f"   Output: List of 4 Elements")
+    print(f"      [0] Frequency List       (shape: {strain_res_list[0].shape})")
+    print(f"      [1] Time-integrated Spectrum Amplitude (h_c) (shape: {strain_res_list[1].shape})")
+    print(f"      [2] Instantaneous hc value for each harmonics (shape: {strain_res_list[2].shape})")
+    print(f"      [3] Contribution to Snf  (shape: {strain_res_list[3].shape})")
+else:
+    print(f"   Output: {type(strain_res_list)}")
+```
+* **Output**:
+    ```
+   Output: List of 4 Elements
+      [0] Frequency List       (shape: (14093,))
+      [1] Time-integrated Spectrum Amplitude (h_c) (shape: (14093,))
+      [2] Instantaneous hc value for each harmonics (shape: (14093,))
+      [3] Contribution to Snf  (shape: (14093,))
+    ```
+<p align="left">
+<img src="./images/characteristic_strain.png" width="500">
+</p>
+
+
+
+#### `LISAeccentric.Waveform.run_population_strain_analysis()`
+Performs a batch characteristic strain analysis on a population of binaries. This function iterates through a list of `CompactBinary` objects, computes their individual spectra, and aggregates the results to estimate the total signal background or confusion noise.
+* **Input**:
+    * `binary_list` (list): A list of `CompactBinary` objects (e.g., from `GC.get_snapshot()` or `Field.get_snapshot()`).
+    * `tobs_yr` (float): Integration time [years].
+    * `plot` (bool, optional): If `True`, plots the combined population spectrum against the LISA sensitivity curve.
+* **Output**:
+    * A `list` containing aggregated results:
+        1.  `faxis`: Common frequency axis array.
+        2.  `Snf_tot`: Total Noise Power Spectral Density from the population.
+        3.  `all_fn_lists`: List of frequency arrays for each binary.
+        4.  `all_hcavg_lists`: List of time-integrated $h_c$ arrays for each binary.
+        5.  `all_hnc_lists`: List of instantaneous $h_c$ arrays for each binary.
+
+**Example:**
+```python
+if 'gn_snapshot' in locals() and len(gn_snapshot) > 0:
+    batch_res = LISAeccentric.Waveform.run_population_strain_analysis(
+        binary_list=gn_snapshot, 
+        tobs_yr=4.0, 
+        plot=True
+    )
+    
+    # Unpack for inspection
+    if batch_res is not None:
+        faxis, Snf_tot = batch_res[0], batch_res[1]
+        print(f"   Output Structure: [faxis, Snf_tot, ...]")
+        print(f"      faxis shape  : {faxis.shape}")
+        print(f"      Snf_tot shape: {Snf_tot.shape}")
+else:
+    print("   [Skip] No population snapshot available for batch analysis.")
+```
+* **Output**:
+    ```
+   Output Structure: [faxis, Snf_tot, ...]
+      faxis shape  : (1000,)
+      Snf_tot shape: (1000,)
+    ```
+<p align="left">
+<img src="./images/background.png" width="500">
+</p>
+
