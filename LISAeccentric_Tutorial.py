@@ -419,27 +419,37 @@ print(">>> MODULE 5: NOISE MANAGEMENT")
 print("=" * 80)
 
 # --- 5.1 Generate Synthetic Noise Data (N2A5 Model) ---
-print("\n[5.1] Generating Synthetic N2A5 Noise Data")
-print("   Action: Defining complex N2A5 foreground model locally.")
-# Execution
-f_new, asd_new = LISAeccentric.Noise.generate_n2a5_data()
+print("\n[5.1] Generating Synthetic Noise Data")
+print("   Action: Using new generic generator (Model: N2A5).")
+
+# [修改 1] 调用新的通用接口
+# 你也可以把 model 改成 'official' 来测试那个读取文件的逻辑
+f_new, asd_new = LISAeccentric.Noise.generate_noise_data(model='N2A5', f_min=1e-5, f_max=1.0)
+
 print(f"   Generated Data: {len(f_new)} points.")
 print(f"   Freq Range: [{f_new[0]:.1e}, {f_new[-1]:.1e}] Hz")
 
-# Plotting the generated noise
+# [修改 2] 计算特征应变 (Characteristic Strain)
+# 公式: h_n = sqrt(f * Sn(f)) = ASD * sqrt(f)
+noise_char_strain = asd_new * np.sqrt(f_new)
+
+# Plotting the generated noise (Characteristic Strain)
 plt.figure(figsize=(8, 5))
-plt.loglog(f_new, asd_new, label='Generated N2A5 Model', color='darkred')
-plt.title("Synthetic N2A5 Noise Curve")
-plt.xlabel("Frequency [Hz]")
-plt.ylabel("ASD [1/sqrt(Hz)]")
-plt.grid(True, which='both', linestyle='--')
+
+# 画图：X轴为频率，Y轴为特征应变
+plt.loglog(f_new, noise_char_strain, label='N2A5 Model (Characteristic)', color='darkred', linewidth=2)
+
+plt.title("LISA Sensitivity Curve (Characteristic Strain)")
+plt.xlabel("Frequency [Hz]", fontsize=12)
+# Y轴标签改为 sqrt(f Sn(f))
+plt.ylabel(r"Characteristic Strain $\sqrt{f S_n(f)}$", fontsize=12)
+plt.grid(True, which='both', linestyle='--', alpha=0.5)
+plt.legend()
 plt.show()
 
 # --- 5.2 Update Noise Curve ---
 print("\n[5.2] Updating System Noise Curve")
 print("   Input: [Frequency_Array, ASD_Array]")
-
-# Execution
 LISAeccentric.Noise.update_noise_curve([f_new, asd_new])
 print("   Status: Global _LISA_NOISE_DATA updated. File overwritten with backup.")
 
