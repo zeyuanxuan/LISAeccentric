@@ -28,7 +28,7 @@ import LISAeccentric
 # [CRITICAL CONFIGURATION]
 # Set verbose=False to disable internal library printing.
 # We will explicitly print inputs and outputs in this script to show the data flow.
-LISAeccentric.set_output_control(verbose=False, show_warnings=False)
+LISAeccentric.set_output_control(verbose=True, show_warnings=False)
 
 
 # ==============================================================================
@@ -119,8 +119,38 @@ if isinstance(strain_res_list, list) and len(strain_res_list) == 4:
     print(f"      [3] Contribution to Snf  (shape: {strain_res_list[3].shape})")
 else:
     print(f"   Output: {type(strain_res_list)}")
+# --- 0.6 Evolving Characteristic Strain (Object Method) ---
+print("\n[0.6] Evolving Characteristic Strain (Object Method) [NEW]")
+print("   Method: .compute_evolving_strain(tobs_yr=4.0, target_n_points=100)")
+print("   Input : tobs_yr (Integration time), target_n_points (Harmonic downsampling)")
+print("   Desc  : Computes hc by actively evolving the orbit (Peters 1964).")
 
-# --- 0.6 Serialization (I/O) ---
+# --- 0.1 Initialization ---
+print("\n[0.1] Creating a CompactBinary Object")
+print("   Input Units: Mass [M_sun], Distance [kpc], SMA [AU]")
+
+# Instantiate a specific system
+my_binary2 = LISAeccentric.CompactBinary(
+    m1=1e5, m2=30, a=0.26, e=0.9, Dl=765.0,
+    label="Tutorial_Core_Obj",
+    extra={
+        'inclination': 0.7854,  # e.g., mutal inclination [rad] (~45 degrees)
+    }
+)
+# Returns [unified_f_axis, total_hc_spectrum, snapshots_data]
+evolving_strain_res = my_binary2.compute_characteristic_strain_evolve(tobs_yr=0.5, target_n_points=50, plot=True, verbose=True,all_harmonics=False)
+
+if evolving_strain_res is not None:
+    f_axis_evolve, hc_total_evolve, snapshots = evolving_strain_res
+    print(f"   Output: List of 3 Elements")
+    print(f"      [0] Unified Frequency Axis (shape: {f_axis_evolve.shape})")
+    print(f"      [1] Total Integrated Strain (h_c) (shape: {hc_total_evolve.shape})")
+    print(f"      [2] Snapshots List (Length: {len(snapshots)}) - Contains time-step details")
+    print(f"          Example Snapshot[0] keys: {list(snapshots[0].keys()) if len(snapshots)>0 else 'Empty'}")
+else:
+    print("   Output: None (Calculation failed)")
+
+# --- 0.7 Serialization (I/O) ---
 print("\n[0.6] Data Serialization (I/O)")
 
 # Export
@@ -383,8 +413,8 @@ if t_merge != float('inf'):
 # --- 4.5 Characteristic Strain (Functional) ---
 print("\n[4.5] Characteristic Strain (Functional API)")
 
-# Case A: Single System
-print("   A. Single System (Explicit Params)")
+# Case A: Single System (Static)
+print("   A. Single System (Static, Explicit Params)")
 hc_res = LISAeccentric.Waveform.compute_characteristic_strain_single(
     m1_msun=target_sys.m1, m2_msun=target_sys.m2,
     a_au=target_sys.a, e=target_sys.e, Dl_kpc=target_sys.Dl,
@@ -392,15 +422,22 @@ hc_res = LISAeccentric.Waveform.compute_characteristic_strain_single(
 )
 strain_res_list=hc_res
 if isinstance(strain_res_list, list) and len(strain_res_list) == 4:
-    print(f"   Output: List of 4 Elements")
-    print(f"      [0] Frequency List       (shape: {strain_res_list[0].shape})")
-    print(f"      [1] Time-integrated Spectrum Amplitude (h_c) (shape: {strain_res_list[1].shape})")
-    print(f"      [2] Instantaneous hc value for each harmonics (shape: {strain_res_list[2].shape})")
-    print(f"      [3] Contribution to Snf  (shape: {strain_res_list[3].shape})")
+    print(f"      Output: List of 4 Elements (Freq, hc, Harmonics, SNR_term)")
 else:
-    print(f"   Output: {type(strain_res_list)}")
+    print(f"      Output: {type(strain_res_list)}")
 
-# Case B: Population Batch
+# Case B: Evolving Spectrum [NEW]
+print("   B. Evolving System (Dynamic Spectrum, Explicit Params)")
+hc_evolve_res = LISAeccentric.Waveform.compute_characteristic_strain_evolve(
+    m1_msun=target_sys.m1, m2_msun=target_sys.m2,
+    a_au=target_sys.a, e=target_sys.e, Dl_kpc=target_sys.Dl,
+    tobs_yr=4.0, target_n_points=50, plot=True, verbose=True
+)
+if hc_evolve_res is not None:
+    f_axis, hc_tot, snaps = hc_evolve_res
+    print(f"      Output: Evolving Spectrum (Total Integrated Strain shape: {hc_tot.shape})")
+
+# Case C: Population Batch
 print("   B. Population Batch Analysis")
 # Note: This function expects a list of objects, but is part of the functional module
 if len(gn_snapshot) > 0:

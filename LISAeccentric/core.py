@@ -341,6 +341,38 @@ class CompactBinary:
         return res
 
     @mute_if_global_verbose_false
+    def compute_characteristic_strain_evolve(self, tobs_yr=4.0, target_n_points=100,
+                                             all_harmonics=False, plot=True, verbose=True):
+        """
+        [NEW] Compute the time-evolving harmonic spectrum and integrated characteristic strain.
+        Uses precise orbital evolution (Peters 1964).
+
+        Parameters:
+            tobs_yr: Observation duration in years
+            target_n_points: Max number of harmonics per snapshot (for sparse tracking)
+            all_harmonics: If True, compute tracks for ALL harmonics in range (can be slow)
+            plot: Whether to plot results
+            verbose: Print status
+        """
+        if verbose:
+            print(f"[CompactBinary] Computing evolving strain for {self.label}...")
+            print(f"                m={self.m1}+{self.m2}, a={self.a:.4e} AU, e={self.e:.4f}, Tobs={tobs_yr} yr")
+
+        # 调用 hc_cal.calculate_evolving_system
+        results = hc_cal.calculate_evolving_system(
+            m1=self.m1,
+            m2=self.m2,
+            a=self.a,
+            e=self.e,
+            Dl=self.Dl,
+            tobs_years=tobs_yr,
+            target_n_points=target_n_points,
+            all_harmonics=all_harmonics,  # <--- Added
+            plot=plot,
+            verbose=verbose
+        )
+        return results
+    @mute_if_global_verbose_false
     def compute_fpeak(self, verbose=True):
         """
         Calculate GW Peak Frequency [Hz] using Wen (2003) approximation.
@@ -1066,6 +1098,41 @@ class LISAeccentric:
                 hc_cal.plot_single_system_results(res)
             return res
 
+        @mute_if_global_verbose_false
+        def compute_characteristic_strain_evolve(self, m1_msun, m2_msun, a_au, e, Dl_kpc, tobs_yr=4.0,
+                                                 target_n_points=100, all_harmonics=False, plot=True, verbose=True):
+            """
+            [NEW] Compute the time-evolving harmonic spectrum and integrated characteristic strain.
+            Uses precise orbital evolution (Peters 1964).
+
+            Parameters:
+                m1_msun, m2_msun: Masses in Solar Masses
+                a_au: Initial Semi-major axis in AU
+                e: Initial Eccentricity
+                Dl_kpc: Luminosity Distance in kpc
+                tobs_yr: Observation duration in years
+                target_n_points: Max number of harmonics per snapshot (downsampling target)
+                all_harmonics: If True, calculate hnc for ALL harmonics in range (slow).
+                plot: Whether to plot the results
+                verbose: Whether to print status messages
+            """
+            if verbose:
+                print(f"[Waveform] Computing evolving strain (Tobs={tobs_yr} yr)...")
+                print(f"           m={m1_msun}+{m2_msun} Msun, a={a_au:.4e} AU, e={e:.4f}")
+
+            results = hc_cal.calculate_evolving_system(
+                m1=m1_msun,
+                m2=m2_msun,
+                a=a_au,
+                e=e,
+                Dl=Dl_kpc,
+                tobs_years=tobs_yr,
+                target_n_points=target_n_points,
+                all_harmonics=all_harmonics,  # <--- Added
+                plot=plot,
+                verbose=verbose
+            )
+            return results
         @mute_if_global_verbose_false
         def run_population_strain_analysis(self, binary_list: List[Any], tobs_yr, plot=True):
             """

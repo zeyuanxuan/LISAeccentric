@@ -1366,8 +1366,8 @@ def eccGW_waveform(f00, e0, timescale, m1, m2, theta, phi, R, l0=0, ts=None, PN_
     # [CHECK 1] 初始近星点保护
     rp_check = (1.0 - e0) / x0
     if rp_check < 6.0:
-        print(f"ERROR: Initial Condition Unstable! rp = {rp_check:.2f} M (< 6M). Returning zeros.")
-        return [np.array([0.0]), np.array([0.0]), np.array([0.0]), 0, [], np.array([0.0])]
+        raise ValueError(f"ERROR: Initial Condition Unstable! rp = {rp_check:.2f} M (< 6M, inside ISCO).")
+        #return [np.array([0.0]), np.array([0.0]), np.array([0.0]), 0, [], np.array([0.0])]
 
     t_accuracy = int(timescale * f0 * max(np.power(1 - e0, -3 / 2) / 100, 1)) + 2000
     rtol0 = 2 / 3 * np.power(1 - e0, 3 / 2) / (timescale * f00) / 10
