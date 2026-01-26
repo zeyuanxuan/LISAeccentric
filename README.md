@@ -26,7 +26,7 @@
 
 ---
 
-## Installation
+## 💾 Installation
 
 You can install `LISAeccentric` directly from GitHub without manually downloading or unzipping files. Please choose the method that matches your environment.
 
@@ -63,9 +63,9 @@ module load python/3.9.6
 python your_script.py
 ```
 
-## Features & Usage Examples
+## 🎯 Features & Usage Examples
 
-### 1. Global Configuration
+### 1️⃣ Global Configuration
 
 #### `LISAeccentric.set_output_control`
 Sets the global verbosity and warning suppression levels.
@@ -82,7 +82,7 @@ LISAeccentric.set_output_control(verbose=False, show_warnings=False)
 
 ___
 
-### 2. CompactBinary Class
+### 2️⃣ CompactBinary Class
 The fundamental unit of the package. This class handles the physics, evolution, and I/O for a single binary system.
 
 #### `LISAeccentric.CompactBinary()`
@@ -372,7 +372,7 @@ Methods to convert `CompactBinary` objects to and from list formats, facilitatin
 ___
 
 
-### 3. Population analysis
+### 3️⃣ Population analysis
 #### 3.1 Galactic Nuclei (GN)
 This module models Binary Black Holes formed dynamically in the Milky Way galactic nuclei (due to the perturbation of the central supermassive black hole). It is based on detailed three-body simulations.
 
@@ -694,7 +694,7 @@ print(f"   Output List Length: {len(field_snapshot_mw)}")
 ___
 
 
-### 4. Waveform & Analysis Pipeline
+### 4️⃣ Waveform & Analysis Pipeline
 This module provides a low-level functional interface to generate and analyze Eccentric Gravitational Waveforms. 
 
 ___
@@ -1082,7 +1082,7 @@ else:
 ___
 
 
-### 5. Noise Management
+### 5️⃣ Noise Management
 This module allows users to customize the LISA sensitivity curve used across the package. It supports generating specific noise models (e.g., N2A5 with galactic foregrounds) and converting them into characteristic strain for visualization.
 
 ___
