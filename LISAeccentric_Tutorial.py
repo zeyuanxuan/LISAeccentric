@@ -214,7 +214,7 @@ print("   Input: rate_gn=2.0 (sys/Myr), age_ync=6.0e6 (yr)")
 
 # Returns: List of CompactBinary objects (Sorted by SNR usually)
 gn_snapshot = LISAeccentric.GN.get_snapshot(
-    rate_gn=2.0, age_ync=6.0e6, n_ync_sys=100, max_bh_mass=50.0, plot=True
+    rate_gn=1.0, age_ync=6.0e6, n_ync_sys=100, max_bh_mass=50.0, plot=True
 )
 print(f"   Output List Length: {len(gn_snapshot)} systems")
 
