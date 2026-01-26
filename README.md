@@ -80,6 +80,8 @@ Sets the global verbosity and warning suppression levels.
 LISAeccentric.set_output_control(verbose=False, show_warnings=False)
 ```
 
+___
+
 ### 2. CompactBinary Class
 The fundamental unit of the package. This class handles the physics, evolution, and I/O for a single binary system.
 
@@ -115,6 +117,8 @@ print(f"   Inclination: {my_binary.extra['inclination']:.4f} rad")
    Inclination: 0.7854 rad
   ```
 
+___
+
 #### `.compute_merger_time()`
 Calculates the remaining time until the merger due to gravitational wave emission.
 * **Input**: None (uses object attributes).
@@ -130,6 +134,9 @@ print(f"      Return Value: {t_merge_yr:.4e} [years] (Type: float)")
   ```
          Return Value: 4.8407e+06 [years] (Type: float)
   ```
+
+___
+
 
 #### `.compute_snr_analytical()`
 Computes the sky-averaged Signal-to-Noise Ratio (SNR) for the LISA detector. This method supports two calculation modes: full integration over harmonics (default) or a fast approximation.
@@ -153,6 +160,9 @@ print(f"      Return Value: {snr_val:.4f} (Type: float)")
       Return Value: 10.9644 (Type: float)
   ```
 
+___
+
+
 #### `.compute_fpeak()`
 Calculates the peak gravitational wave frequency ($f_{\rm peak}$) for the eccentric binary using the Wen (2003) approximation. For highly eccentric systems, the GW power peaks at a frequency significantly higher than the orbital frequency: $f_{\rm peak} \approx f_{\rm orb} \frac{(1+e)^{1.1954}}{(1-e)^{1.5}}$.
 
@@ -171,6 +181,9 @@ print(f"      Return Value: {f_peak:.4e} [Hz] (Type: float)")
   ```
        Return Value: 1.3205e-03 [Hz] (Type: float)
   ```
+
+___
+
 
 #### `.evolve_orbit()`
 Predicts the future state of the binary system by evolving its orbital parameters forward in time due to gravitational wave emission (Peters64 formula).
@@ -193,6 +206,9 @@ print(f"      Return Tuple: a={a_new} au, e={e_new}")
   ```
         Return Tuple: a=0.25991616861323 au, e=0.9849951873952284
   ```
+
+___
+
   
 #### `.compute_waveform()`
 A convenience method to compute the Gravitational Wave (GW) waveform specifically for the initialized binary system. It automatically utilizes the object's internal physical attributes ($m_1, m_2, a, e, D_L$) and supports adaptive time sampling.
@@ -229,6 +245,9 @@ wf_data_obj = my_binary.compute_waveform(
   <img src="./images/waveformeg.png" width="500">
 </p>
 
+___
+
+
 #### `.compute_characteristic_strain()`
 Computes the characteristic strain spectrum ($h_c$) for the binary system by decomposing the signal into orbital harmonics.
 * **Note:** This fast calculation method assumes the binary's evolution is negilible during the observation.
@@ -250,6 +269,9 @@ strain_res_list = my_binary.compute_characteristic_strain(tobs_yr=4.0, plot=True
 <p align="left">
   <img src="./images/characteristic_strain.png?v=2" width="500">
 </p>
+
+___
+
 
 #### `.compute_characteristic_strain_evolve()`
 Computes the **time-evolving** characteristic strain spectrum ($h_c$) by integrating the signal along the binary's evolutionary track (using Peters 1964 equations). This method captures the "chirping" of harmonics across the frequency band.
@@ -315,6 +337,9 @@ if evolve_res is not None:
   <img src="./images/hc_evolve.png" width="500">
 </p>
 
+___
+
+
 #### `.to_list()` `.from_list()`
 Methods to convert `CompactBinary` objects to and from list formats, facilitating data storage (e.g., to CSV/NumPy files) and retrieval.
 * **.to_list()**: 
@@ -343,9 +368,17 @@ Methods to convert `CompactBinary` objects to and from list formats, facilitatin
    B. from_list(data_list=..., schema='snapshot_std')
       Output: <CompactBinary [Imp_Sys]: M=50.0+50.0 m_sun, a=0.50AU, e=0.9000, Dl=16.8kpc, SNR=0.00>
     ```
+
+___
+
+
 ### 3. Population analysis
 #### 3.1 Galactic Nuclei (GN)
 This module models Binary Black Holes formed dynamically in the Milky Way galactic nuclei (due to the perturbation of the central supermassive black hole). It is based on detailed three-body simulations.
+
+___
+
+
 #### ` LISAeccentric.GN.sample_eccentricities()`
 Randomly samples $N$ merger eccentricities for BBHs formed in Galactic Nuclei, defined at the LIGO frequency band (10Hz).
 * **Input**:
@@ -372,6 +405,9 @@ print(f"   Mean Eccentricity: {np.mean(gn_e_samples)}")
 <img src="./images/GNecc_LIGO.png" width="500">
 </p>
 
+___
+
+
 #### `LISAeccentric.GN.get_progenitor()`
 Retrieves the properties of the binary progenitors (initial states) from the underlying population catalog (BBH in GN, orbiting around a SMBH with M = 4e6 msun). These are the systems *before* they evolve to merger.
 * **Input**:
@@ -391,6 +427,10 @@ print(f"   Sample Item: {gn_progenitors[0]}")
    Output List Length: 3
    Sample Item: <CompactBinary [GN_Progenitor]: M=50.6+25.7 m_sun, a=3.395e-01AU, e=0.9278, Dl=8.0kpc | e2_init=0.505, i_init_rad=2.167, a2_init=1.57e+04, a_final=1.45e-05, e_final=3.04e-06, lifetime_yr=1.03e+08>
     ```
+
+___
+
+
 #### `LISAeccentric.GN.get_snapshot()`
 Generates a snapshot of the BBH population currently in the GN. This includes systems from both the steady-state formation channel and a recent starburst event (Young Nuclear Cluster, YNC). The results can be changed by adjusting the BBH formation rate in the steady-state population and the age and total BBH number in the YNC population.
 * **Input**:
@@ -417,8 +457,14 @@ print(f"   Output List Length: {len(gn_snapshot)} systems")
 <img src="./images/GNsnapshot0.png" width="500">
 </p>
 
+___
+
+
 ### 3.2 Globular Clusters (GC)
 This module models Binary Black Holes formed dynamically in Milky Way globular clusters. It supports sampling from specific dynamic formation channels (e.g., Kozai-Lidov triples, binary-single captures) based on detailed Monte Carlo N-body simulations.
+
+___
+
 
 #### `LISAeccentric.GC.sample_eccentricities()`
 Randomly samples $N$ merger eccentricities for GC BBHs at the LIGO frequency band (10Hz).
@@ -447,6 +493,9 @@ print(f"   Output Shape: {np.shape(gc_e_samples)}")
 <img src="./images/GCecc_LIGO.png" width="500">
 </p>
 
+___
+
+
 #### `LISAeccentric.GC.get_snapshot()`
 Retrieves a snapshot of the GC BBH population in the Milky Way. This method supports three retrieval modes to allow for different scales of analysis (full ensemble vs. single galaxy realization).
 * **Input**:
@@ -473,8 +522,14 @@ print(f"   Output List Length: {len(gc_data_full)}")
 <img src="./images/GCsnapshot.png" width="500">
 </p>
 
+___
+
+
 ### 3.2 Galactic Field (Field)
 This module models Binary Black Holes mergers formed via dynamic fly-by interactions in galactic field environments. It supports simulations for both Milky Way-like (disk) galaxies and Elliptical galaxies.
+
+___
+
 
 #### `LISAeccentric.Field.run_simulation()`
 Executes a Monte Carlo simulation to generate a population of fly-by mergers based on specific galactic structure and physical parameters. The results are saved to disk for subsequent analysis (sampling/snapshotting).
@@ -541,6 +596,10 @@ LISAeccentric.Field.run_simulation(
 )
 print("   Status: Elliptical simulation saved.")
 ```
+
+___
+
+
 #### `LISAeccentric.Field.get_progenitor()`
 Retrieves the properties of the binary progenitors (initial states at formation) from the simulated library. These represent the system parameters right after being perturbed to high eccentricity and start evolving via GW emission. 
 
@@ -570,6 +629,9 @@ print(f"   Output List Length: {len(field_progs)}")
 <img src="./images/Field_lifetime.png" width="500">
 </p>
 
+___
+
+
 #### `LISAeccentric.Field.sample_eccentricities()`
 Randomly samples $N$ merger eccentricities for Field BBHs at the LIGO frequency band (10Hz).
 * **Input**:
@@ -593,6 +655,9 @@ print(f"   Output Shape: {np.shape(field_e_samples)}")
 <p align="left">
 <img src="./images/Fieldecc_LIGO.png" width="500">
 </p>
+
+___
+
 
 #### `LISAeccentric.Field.get_snapshot()`
 Generates a "snapshot" containing BBH systems that currently exist in the Galactic Field. These systems represent binaries that have been excited to high eccentricity via fly-by interactions and are predicted to merge within the specified future time window (`t_window_Gyr`).
@@ -626,8 +691,14 @@ print(f"   Output List Length: {len(field_snapshot_mw)}")
 <img src="./images/Field_snapshot.png" width="500">
 </p>
 
+___
+
+
 ### 4. Waveform & Analysis Pipeline
 This module provides a low-level functional interface to generate and analyze Eccentric Gravitational Waveforms. 
+
+___
+
 
 #### `LISAeccentric.Waveform.compute_waveform()`
 Generates the time-domain waveform ($h_+, h_\times$) using PN evolution model.
@@ -734,6 +805,9 @@ After generation, it is crucial to verify the data structure, calculate the samp
 </p>
 Computes the Time-Delay Interferometry (TDI) response (specifically the $X$ channel or equivalent michelson response) for the LISA constellation. This function projects the $h_+$ and $h_\times$ polarizations onto the detector arms, accounting for the antenna pattern and time delays.
 
+___
+
+
 #### `LISAeccentric.Waveform.compute_LISA_response()`
 * **Input**:
     * `dt_sample_sec` (float): Sampling interval of the input waveform [s].
@@ -772,6 +846,9 @@ if lisa_resp is not None:
 <img src="./images/response0.png" width="500">
 </p>
 
+___
+
+
 #### `LISAeccentric.Waveform.compute_snr_analytical()`
 Sky-averaged SNR, assuming the source evolves slowly.
 * **Input**:
@@ -795,6 +872,9 @@ print(f"   [Analytical] SNR ~ {snr_ana:.4f}")
      [Analytical] SNR ~ 354.9420
     ```
     
+___
+
+
 #### `LISAeccentric.Waveform.compute_snr_numerical()`
 Computes SNR directly from the time-domain waveform array. Valid for arbitrary signals.
 * **Input**:
@@ -815,6 +895,9 @@ Computes SNR directly from the time-domain waveform array. Valid for arbitrary s
     ```
    [Numerical]  SNR ~ 283.0686
     ```
+
+___
+
 
 #### `LISAeccentric.Waveform.compute_inner_product()`
 Computes the noise-weighted inner product $\langle h_1 | h_2 \rangle$ between two time-domain waveforms using the LISA sensitivity curve $S_n(f)$. This is the fundamental operation for matched filtering, overlap calculations, and determining signal orthogonality.
@@ -843,6 +926,9 @@ print(f"   Sqrt(Inner Product): {np.sqrt(inner_prod):.4f} (Should match Numerica
    Sqrt(Inner Product): 283.0686 (Should match Numerical SNR)
     ```
 
+___
+
+
 #### `LISAeccentric.Waveform.compute_merger_time()`
 * **Input**:
     * `m1_msun`, `m2_msun` (float): Component masses [$M_\odot$].
@@ -863,6 +949,10 @@ print(f"   Merger Time: {t_merge:.4e} yr")
     ```
    Merger Time: 2.6811e+04 yr
     ```
+    
+___
+
+
 #### `LISAeccentric.Waveform.evolve_orbit()`
 * **Input**:
     * `m1_msun`, `m2_msun` (float): Component masses [$M_\odot$].
@@ -890,6 +980,9 @@ print(f"   Merger Time: {t_merge:.4e} yr")
    Evolving forward by 1.34e+04 yr...
    Result: a=3.4600e-02 AU, e=0.971288
     ```
+
+___
+
 
 
 #### `LISAeccentric.Waveform.compute_characteristic_strain_single()`
@@ -941,6 +1034,9 @@ else:
 
 
 
+___
+
+
 #### `LISAeccentric.Waveform.run_population_strain_analysis()`
 Performs a batch characteristic strain analysis on a population of binaries. This function iterates through a list of `CompactBinary` objects, computes their individual spectra, and aggregates the results to estimate the total signal background or confusion noise.
 * **Input**:
@@ -983,8 +1079,14 @@ else:
 <img src="./images/background.png" width="500">
 </p>
 
+___
+
+
 ### 5. Noise Management
 This module allows users to customize the LISA sensitivity curve used across the package. It supports generating specific noise models (e.g., N2A5 with galactic foregrounds) and converting them into characteristic strain for visualization.
+
+___
+
 
 #### `LISAeccentric.Noise.generate_noise_data()`
 Generates synthetic noise Amplitude Spectral Density (ASD) data based on a specified model.
@@ -1025,6 +1127,9 @@ plt.show()
 <img src="./images/N2A5.png" width="500">
 </p>
 
+___
+
+
 #### `LISAeccentric.Noise.update_noise_curve()`
 Updates the global noise data used by the `Waveform` module for SNR and Inner Product calculations. (Original one will be saved automatically with index 1,2,3...)
 * **Input**:
@@ -1035,6 +1140,10 @@ Updates the global noise data used by the `Waveform` module for SNR and Inner Pr
 # Execution: Inject the new noise curve into the global system
 LISAeccentric.Noise.update_noise_curve([f_new, asd_new])
 ```
+
+___
+
+
 #### `LISAeccentric.Noise.recover_noise_curve()`
 Reverts the global noise configuration to a previous state or a standard preset.
 * **Input**:
@@ -1047,6 +1156,9 @@ Reverts the global noise configuration to a previous state or a standard preset.
 ```python
 LISAeccentric.Noise.recover_noise_curve(version=1)
 ```
+
+___
+
 
 #### `LISAeccentric.Noise.get_noise_curve()`
 Retrieves the currently active noise data for inspection.
@@ -1064,8 +1176,15 @@ curve_data = LISAeccentric.Noise.get_noise_curve(plot=True)
 <img src="./images/official.png" width="500">
 </p>
 
+___
+
+
 #### `LISAeccentric.Noise.clean_backups()`
 Removes all temporary noise backup files created during the session.
+
+___
+
+
 
 **Example:**
 ```python
