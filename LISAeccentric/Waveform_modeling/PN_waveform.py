@@ -23,6 +23,17 @@ import sys
 import warnings
 from scipy.optimize import brentq
 from scipy.interpolate import PchipInterpolator  # [新增] 用于快速插值
+
+# -----------------------------------------------------------------------------
+# [AUTO-FIX] SciPy Version Compatibility Patch
+# -----------------------------------------------------------------------------
+if not hasattr(scipy.integrate, 'cumtrapz'):
+    if hasattr(scipy.integrate, 'cumulative_trapezoid'):
+        scipy.integrate.cumtrapz = scipy.integrate.cumulative_trapezoid
+    else:
+        # For very old scipy versions (unlikely but safe)
+        from scipy.integrate import cumtrapz as _cumtrapz
+        scipy.integrate.cumtrapz = _cumtrapz
 # -----------------------------------------------------------------------------
 # [AUTO-FIX] Numba Cache Integrity Check
 # -----------------------------------------------------------------------------
@@ -1509,7 +1520,7 @@ def eccGW_waveform(f00, e0, timescale, m1, m2, theta, phi, R, l0=0, ts=None, PN_
                     N=50, max_memory_GB=16.0, verbose=True):
     # 如果 verbose 为 True，vprint 就是 print；否则 vprint 是一个什么都不做的空函数
     vprint = print if verbose else lambda *args, **kwargs: None
-
+    print('!!!!')
     m1=m1
     m2=m2
     R=R
