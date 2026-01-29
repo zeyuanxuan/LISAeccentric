@@ -79,8 +79,8 @@ def get_requirements():
         # Allow newer versions so pip can find binary wheels (much faster install).
         # We still set the minimum version to ensure API compatibility.
         reqs.extend([
-            "numpy>=1.21.0",
-            "scipy>=1.7.0",
+            "numpy>=1.21.0,<2.0.0",  # <--- 加上 <2.0.0
+            "scipy>=1.7.0",  # Scipy 如果不报错可以不封顶，但保险起见 <1.14 比较稳
             "pandas>=1.4.0",
         ])
 
