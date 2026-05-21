@@ -1140,7 +1140,7 @@ class LISAeccentric:
             return wf
 
 
-        def compute_orbit_evolution(m1_msun, m2_msun, a_au, e, tobs_yr,
+        def compute_orbit_evolution(self, m1_msun, m2_msun, a_au, e, tobs_yr,
                                     input_mode='a_au',
                                     initial_orbital_phase=0.0,
                                     PN_orbit=3, PN_reaction=2,
