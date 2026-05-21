@@ -639,9 +639,9 @@ if evolve_res is not None:
 
 ### 3️⃣ Population analysis
 
-> **⚠️ Note on LIGO merger eccentricity conventions:** The reference frequency at which the sampled eccentricities are defined differs by channel:
-> * **GN** and **Field** `sample_eccentricities()` return eccentricities defined at **orbital frequency** $f_{\rm orb} = 10$ Hz.
-> * **GC** `sample_eccentricities()` returns eccentricities defined at **peak GW frequency** $f_{\rm peak} = f_{\rm orb}\,(1+e)^{1.1954}/(1-e)^{1.5} = 10$ Hz (Wen 2003, eq. 36; see [`compute_fpeak`](#compute_fpeak)).
+> **⚠️ Note on LIGO merger eccentricity conventions:** The reference frequency at which the sampled eccentricities are defined **differs by channel**. Keep this in mind when combining or directly comparing eccentricity distributions across the three environments:
+> * **GN** and **Field** — `sample_eccentricities()` returns eccentricities defined at **circular-limit GW frequency** $2 f_{\rm orb} = 10$ Hz (i.e. the semi-major axis is set via Kepler's third law with orbital period $P = 2 / f_{\rm gw}$, $f_{\rm gw} = 10$ Hz, so $f_{\rm orb} = 5$ Hz).
+> * **GC** — `sample_eccentricities()` returns eccentricities defined at **peak GW frequency** $f_{\rm peak} = f_{\rm orb}\,(1+e)^{1.1954}/(1-e)^{1.5} = 10$ Hz (Wen 2003, eq. 36; see [`compute_fpeak`](#compute_fpeak)).
 
 
 ### 3.1 Galactic Nuclei (GN)
@@ -650,13 +650,13 @@ This module models Binary Black Holes formed dynamically in Milky Way–like gal
 ---
 
 #### `leap.GN.sample_eccentricities()`
-Randomly samples $N$ merger eccentricities for BBHs formed in Galactic Nuclei, defined at the LIGO frequency band (10 Hz).
+Randomly samples $N$ merger eccentricities for BBHs formed in Galactic Nuclei, defined at the circular-limit GW frequency $2 f_{\rm orb} = 10$ Hz ($f_{\rm orb} = 5$ Hz).
 * **Input**:
     * `n_samples` (int): Number of eccentricity samples to generate.
     * `max_bh_mass` (float, optional): Maximum BH mass to consider for the population filter [$M_\odot$]. Default `50`.
     * `plot` (bool, optional): If `True`, plots the CDF of $\log_{10}(e)$.
 * **Output**:
-    * `gn_e_samples` (NumPy array): 1D array of sampled eccentricity values at 10 Hz.
+    * `gn_e_samples` (NumPy array): 1D array of sampled eccentricity values at $2 f_{\rm orb} = 10$ Hz.
 
 **Example:**
 ```python
@@ -733,7 +733,7 @@ This module models Binary Black Holes formed dynamically in Milky Way globular c
 ---
 
 #### `leap.GC.sample_eccentricities()`
-Randomly samples $N$ merger eccentricities for GC BBHs at the LIGO frequency band (10 Hz).
+Randomly samples $N$ merger eccentricities for GC BBHs, defined at peak GW frequency $f_{\rm peak} = f_{\rm orb}\,(1+e)^{1.1954}/(1-e)^{1.5} = 10$ Hz
 * **Input**:
     * `n` (int): Number of eccentricity samples to generate.
     * `channel_name` (str, optional): Specific formation channel. Default `'Incluster'`.
@@ -901,13 +901,13 @@ print(f"   Output List Length: {len(field_progs)}")
 ---
 
 #### `leap.Field.sample_eccentricities()`
-Randomly samples $N$ merger eccentricities for Field BBHs at the LIGO frequency band (10 Hz).
+Randomly samples $N$ merger eccentricities for Field BBHs, defined at the circular-limit GW frequency $2 f_{\rm orb} = 10$ Hz ($f_{\rm orb} = 5$ Hz).
 * **Input**:
     * `n` (int): Number of eccentricity samples to generate.
     * `galaxy_type` (str, optional): Target environment. `'MW'` or `'Elliptical'`. Default `'MW'`.
     * `plot` (bool, optional): If `True`, plots the CDF of $\log_{10}(e)$.
 * **Output**:
-    * `field_e_samples` (NumPy array): 1D array of sampled eccentricity values at 10 Hz.
+    * `field_e_samples` (NumPy array): 1D array of sampled eccentricity values at $2 f_{\rm orb} = 10$ Hz.
 
 **Example:**
 ```python
