@@ -14,6 +14,7 @@ import os
 import sys
 import threading
 import time
+from numba import njit
 
 #transform to G=c=1 unit
 m_sun = 1.98840987e30 * sciconsts.G / np.power(sciconsts.c, 3.0)
@@ -66,6 +67,77 @@ def mute_if_global_verbose_false(func):
             return func(*args, **kwargs)
 
     return wrapper
+
+
+
+
+
+
+@njit(fastmath=True, cache=True)
+def _geo_Esq_Lzsq(p, e):
+    """Return (E_bar^2, Lz^2) for Schwarzschild equatorial geodesic, M=1."""
+    denom = p * (p - 3.0 - e * e)
+    Esq = (p - 2.0 - 2.0 * e) * (p - 2.0 + 2.0 * e) / denom
+    Lzsq = p * p / (p - 3.0 - e * e)
+    return Esq, Lzsq
+
+
+@njit(fastmath=True, cache=True)
+def _invert_geodesic_pe(Ebar_vec, Lz_vec, p_seed0, e_seed0):
+    """For each (E_bar, Lz), solve the 2x2 geodesic system for (p, e) by
+    damped Newton with numerical Jacobian + continuation. Returns
+    (p_vec, e_vec, max_residual)."""
+    n = Ebar_vec.shape[0]
+    p_vec = np.empty(n)
+    e_vec = np.empty(n)
+    max_res = 0.0
+
+    p = p_seed0
+    e = e_seed0
+    for i in range(n):
+        Esq_t = Ebar_vec[i] * Ebar_vec[i]
+        Lzsq_t = Lz_vec[i] * Lz_vec[i]
+        rn = 1e30
+        for _ in range(100):
+            Esq, Lzsq = _geo_Esq_Lzsq(p, e)
+            f1 = Esq - Esq_t
+            f2 = Lzsq - Lzsq_t
+            rn = np.sqrt(f1 * f1 + f2 * f2)
+            if rn < 1e-13:
+                break
+            dp = 1e-8 * (abs(p) + 1e-12)
+            de = 1e-8 * (abs(e) + 1e-12)
+            Ep1, Lp1 = _geo_Esq_Lzsq(p + dp, e)
+            Ep0, Lp0 = _geo_Esq_Lzsq(p - dp, e)
+            Ee1, Le1 = _geo_Esq_Lzsq(p, e + de)
+            Ee0, Le0 = _geo_Esq_Lzsq(p, e - de)
+            J11 = (Ep1 - Ep0) / (2.0 * dp)
+            J21 = (Lp1 - Lp0) / (2.0 * dp)
+            J12 = (Ee1 - Ee0) / (2.0 * de)
+            J22 = (Le1 - Le0) / (2.0 * de)
+            det = J11 * J22 - J12 * J21
+            if abs(det) < 1e-30:
+                det = 1e-30 if det >= 0 else -1e-30
+            dp_step = (J22 * f1 - J12 * f2) / det
+            de_step = (-J21 * f1 + J11 * f2) / det
+            cap = 0.5
+            if abs(dp_step) > cap * (abs(p) + 1e-12):
+                dp_step = cap * (abs(p) + 1e-12) * (1.0 if dp_step > 0 else -1.0)
+            if abs(de_step) > cap * (abs(e) + 1e-12):
+                de_step = cap * (abs(e) + 1e-12) * (1.0 if de_step > 0 else -1.0)
+            p = p - dp_step
+            e = e - de_step
+            if e < 0.0:
+                e = 0.0
+            if e > 0.999999:
+                e = 0.999999
+            if p < 4.0:  # below this no bound geodesic; clamp
+                p = 4.0
+        p_vec[i] = p
+        e_vec[i] = e
+        if rn > max_res:
+            max_res = rn
+    return p_vec, e_vec, max_res
 
 # ==============================================================================
 # CompactBinary
@@ -1066,6 +1138,172 @@ class LISAeccentric:
                 plt.legend()
                 plt.show()
             return wf
+
+
+        def compute_orbit_evolution(m1_msun, m2_msun, a_au, e, tobs_yr,
+                                    input_mode='a_au',
+                                    initial_orbital_phase=0.0,
+                                    PN_orbit=3, PN_reaction=2,
+                                    ts=None, points_per_peak=50,
+                                    max_memory_GB=16.0,
+                                    E_method='invert',
+                                    compute_a=False,
+                                    compute_pe=False,
+                                    e_zero_point='add_one',
+                                    verbose=True, plot=True):
+            """Evolve the orbit (no waveform) and return a dict of vectors.
+
+            Mirrors compute_waveform's input handling (a_au / forb_Hz / fangular_Hz).
+
+            Returns dict with keys:
+                t, x, e_t, l, E, Lz                         (always)
+                a_au                                        (if compute_a)
+                p_pn, e_pn   (PN route: p=(1-e_t^2)/x, e=e_t)        (if compute_pe)
+                p_geo, e_geo (geodesic route, E_bar=1+xi)            (if compute_pe)
+            """
+            m1 = m1_msun * m_sun
+            m2 = m2_msun * m_sun
+            M_total = m1 + m2
+            tobs = tobs_yr * years
+
+            # -- resolve input_mode -> f_orb (same logic as compute_waveform) --------
+            f_orb = 0.0
+            a_au_display = 0.0
+            if input_mode == 'a_au':
+                a = a_au * AU
+                if a > 0:
+                    f_orb = np.sqrt(M_total / (4 * pi ** 2 * a ** 3))
+                a_au_display = a_au
+            elif input_mode == 'forb_Hz':
+                f_orb = a_au
+                if f_orb > 0:
+                    a_s = np.power(M_total / ((2 * pi * f_orb) ** 2), 1.0 / 3.0)
+                    a_au_display = a_s / AU
+            elif input_mode == 'fangular_Hz':
+                from scipy.optimize import newton
+                target_f0 = a_au
+
+                def get_a0(f_val, M):
+                    return np.power(M / ((2 * pi * f_val) ** 2), 1.0 / 3.0)
+
+                def deltafvalue(a_, e_in, M):
+                    n = np.power(a_, -3 / 2) * np.sqrt(M)
+                    Porb = 2 * pi / n
+                    return 6 * np.power(2 * pi, 2 / 3) / (1 - e_in * e_in) \
+                        * np.power(M, 2 / 3) * np.power(Porb, -5 / 3)
+
+                def resid(f00g):
+                    if f00g <= 0:
+                        return 1e6
+                    ag = get_a0(f00g, M_total)
+                    return f00g + deltafvalue(ag, e, M_total) / 2.0 - target_f0
+
+                f_orb = newton(resid, x0=target_f0, tol=1e-7, maxiter=50)
+                a_au_display = get_a0(f_orb, M_total) / AU
+            else:
+                raise ValueError(f"Unknown input_mode: {input_mode}")
+
+            if verbose:
+                smode = (f"Fixed ts={ts}s" if ts is not None
+                         else f"Adaptive N={points_per_peak}/peak")
+                print(f"\n[OrbitEvolution] {input_mode} | m={m1_msun}+{m2_msun} Msun, "
+                      f"e={e:.3f}")
+                print(f"           f_orb={f_orb:.4e} Hz, a~={a_au_display:.4f} AU, "
+                      f"{smode}, E_method={E_method}")
+
+            # -- evolve --------------------------------------------------------------
+            t, xvec, evec, lvec, Evec, Lzvec = PN_waveform.ecc_orbit_evolution(
+                f_orb, e, tobs, m1, m2,
+                l0=initial_orbital_phase, ts=ts,
+                PN_orbit=PN_orbit, PN_reaction=PN_reaction,
+                N=points_per_peak, max_memory_GB=max_memory_GB,
+                verbose=verbose, E_method=E_method,
+            )
+
+            out = dict(t=t, x=xvec, e_t=evec, l=lvec, E=Evec, Lz=Lzvec)
+
+            if len(t) == 0:
+                if verbose:
+                    print("  [empty evolution]")
+                return out
+
+            # -- semi-major axis (approximate, leading PN: a = M/x) ------------------
+            if compute_a:
+                GM_over_c2_AU = (M_total) / AU  # M_total is in seconds == GM/c^3;
+                # a_geom [units of M] = 1/x ; a_geom*M (seconds) = M/x; /AU -> AU.
+                # In geometrized seconds, length = time, so a[s] = M_total / x.
+                a_sec = M_total / xvec
+                out['a_au'] = a_sec / AU
+                if verbose:
+                    print(f"  a_au (approx, a=M/x): "
+                          f"[{out['a_au'].min():.4e}, {out['a_au'].max():.4e}] AU")
+
+            # -- EMRI (p, e): output BOTH routes for comparison ----------------------
+            if compute_pe:
+                # ---- PN self-consistent route: p = a_r(1-e_t^2), e = e_t -----------
+                # leading-order a_r = 1/x (geom, M=1)  ->  p_pn = (1-e_t^2)/x
+                p_pn = (1.0 - evec ** 2) / xvec
+                e_pn = evec.copy()
+                out['p_pn'] = p_pn
+                out['e_pn'] = e_pn
+
+                # ---- geodesic route: invert Schwarzschild (E_bar, Lz) -> (p, e) ----
+                # zero point: PN binding energy xi -> specific energy E_bar = 1 + xi
+                if e_zero_point == 'add_one':
+                    Ebar = 1.0 + Evec
+                elif e_zero_point == 'as_is':
+                    Ebar = Evec
+                else:
+                    raise ValueError("e_zero_point must be 'add_one' or 'as_is'")
+                p_seed0 = (1.0 - evec[0] ** 2) / xvec[0]  # Newtonian seed
+                e_seed0 = evec[0]
+                p_geo, e_geo, res = _invert_geodesic_pe(
+                    np.ascontiguousarray(Ebar),
+                    np.ascontiguousarray(Lzvec),
+                    float(p_seed0), float(e_seed0))
+                out['p_geo'] = p_geo
+                out['e_geo'] = e_geo
+
+                if verbose:
+                    print(f"  [PN route]       p=(1-e_t^2)/x, e=e_t : "
+                          f"p:[{p_pn.min():.4g},{p_pn.max():.4g}]  "
+                          f"e:[{e_pn.min():.4g},{e_pn.max():.4g}]")
+                    print(f"  [geodesic route] (E_bar=1+xi) max res={res:.2e}: "
+                          f"p:[{p_geo.min():.4g},{p_geo.max():.4g}]  "
+                          f"e:[{e_geo.min():.4g},{e_geo.max():.4g}]")
+
+            # -- optional plot -------------------------------------------------------
+            if plot:
+                import matplotlib.pyplot as plt
+                npan = 2 + int(compute_a) + (1 if compute_pe else 0)
+                fig, axes = plt.subplots(npan, 1, figsize=(9, 2.2 * npan),
+                                         sharex=True)
+                if npan == 1:
+                    axes = [axes]
+                k = 0
+                axes[k].plot(t, xvec, color='#1f4e79');
+                axes[k].set_ylabel('x');
+                k += 1
+                axes[k].plot(t, evec, color='#a6262e');
+                axes[k].set_ylabel('e_t');
+                k += 1
+                if compute_a:
+                    axes[k].plot(t, out['a_au'], color='#2a7f3f')
+                    axes[k].set_ylabel('a [AU]');
+                    k += 1
+                if compute_pe:
+                    axes[k].plot(t, out['p_geo'], color='#7a3aa1', label='p (geodesic)')
+                    axes[k].plot(t, out['p_pn'], color='#d08a00', ls='--', label='p (PN)')
+                    axes[k].set_ylabel('p');
+                    axes[k].legend(loc='upper right');
+                    k += 1
+                axes[-1].set_xlabel('t [s]')
+                for ax in axes:
+                    ax.grid(alpha=0.3)
+                plt.tight_layout()
+                plt.show()
+
+            return out
         @mute_if_global_verbose_false
         def compute_LISA_response(self, dt_sample_sec, hplus, hcross,
                                   theta_sky=np.pi / 4, phi_sky=np.pi / 4, psi_sky=np.pi / 4,

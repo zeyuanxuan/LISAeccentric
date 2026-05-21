@@ -23,6 +23,8 @@ import sys
 import warnings
 from scipy.optimize import brentq
 from scipy.interpolate import PchipInterpolator  # [新增] 用于快速插值
+import warnings
+from scipy.optimize import fsolve
 
 # -----------------------------------------------------------------------------
 # [AUTO-FIX] SciPy Version Compatibility Patch
@@ -2294,3 +2296,442 @@ def compute_characteristic_strain_numerical(h_t, ts, plot=False):
         plt.show()
 
     return xs, hc_num
+
+"""
+TEST VERSION!
+"""
+
+"""
+Orbit-level evolution for the x-model (Hinder et al. 2010, PRD 82, 024033;
+ADM-coordinate quasi-Keplerian parametrization from Memmesheimer,
+Gopakumar & Schaefer 2004, PRD 70, 104011 / arXiv:gr-qc/0407049).
+
+Stripped-down version of `eccGW_waveform`: evolves the orbital parameters
+(x, e_t, l) but does NOT build the waveform.  Also returns the reduced
+(specific) energy E and angular momentum Lz along the inspiral, computed
+from (x, e_t) via the PN relations.
+
+Returns:
+    [t, x, e, l, E, Lz]
+    t   : time grid [s]
+    x   : PN frequency parameter x = (M omega)^(2/3)        [dimensionless]
+    e   : time eccentricity e_t                             [dimensionless]
+    l   : mean anomaly l                                    [rad]
+    E   : reduced orbital energy xi = E/mu                  [geometrized, c^2 units]
+    Lz  : reduced orbital angular momentum j = L/(M mu)     [geometrized, GM/c units]
+
+PN COEFFICIENTS
+---------------
+Leading (Newtonian) terms for xi(x,e_t) and j(x,e_t) are exact and hard
+coded.  The 1PN/2PN/3PN coefficient blocks are LEFT AS EXPLICIT, CLEARLY
+MARKED placeholders: fill them from MGS04 Eq.(25) (ADM) matching your PN
+order.  Cross-check the result against the E/Lz columns of the .traj file
+before trusting higher orders.
+"""
+# scipy renamed cumtrapz -> cumulative_trapezoid in 1.14+; support both
+if hasattr(sci_integrate, "cumulative_trapezoid"):
+    _cumtrapz = sci_integrate.cumulative_trapezoid
+else:
+    _cumtrapz = sci_integrate.cumtrapz
+# ============================================================================
+#  MGS04 ADM forward relations  (E, h, eta) -> (n, e_t^2)
+#  Transcribed VERBATIM from Memmesheimer-Gopakumar-Schaefer 2004,
+#  arXiv:gr-qc/0407049, Eq.(20c) [n] and Eq.(20d) [e_t^2], ADM coordinates.
+#
+#  Conventions (geometrized, G = c = 1, total mass M = 1):
+#    E  = reduced energy xi = E_phys/mu  (NEGATIVE for bound orbits)
+#    h  = reduced angular momentum = J/(G M mu)  ->  here L/(M mu)
+#  Recurring combos:  mE2 = (-2 E);  Eh2 = (-2 E h^2)  (== 1 - e_t^2 at Newt.)
+#  Since c = 1, the 1/c^2,1/c^4,1/c^6 prefactors are all 1.
+# ============================================================================
+@njit(fastmath=True, cache=True)
+def mgs_n_of_Eh(E, h, eta):
+    """Mean motion n(E,h,eta), ADM, MGS04 Eq.(20c). Geometrized (M=1)."""
+    mE2 = -2.0 * E
+    Eh2 = -2.0 * E * h * h
+    sqEh2 = np.sqrt(Eh2)
+    n = mE2 ** 1.5 * (
+        1.0
+        + (mE2 / 8.0) * (-15.0 + eta)
+        + (mE2 ** 2 / 128.0) * (
+            555.0 + 30.0 * eta + 11.0 * eta ** 2
+            + (192.0 / sqEh2) * (-5.0 + 2.0 * eta)
+        )
+        + (mE2 ** 3 / 3072.0) * (
+            -29385.0 - 4995.0 * eta - 315.0 * eta ** 2 + 135.0 * eta ** 3
+            - (16.0 / Eh2 ** 1.5) * (10080.0 + 123.0 * eta * np.pi ** 2
+                                     - 13952.0 * eta + 1440.0 * eta ** 2)
+            + (5760.0 / sqEh2) * (17.0 - 9.0 * eta + 2.0 * eta ** 2)
+        )
+    )
+    return n
+@njit(fastmath=True, cache=True)
+def mgs_et2_of_Eh(E, h, eta):
+    """Time eccentricity squared e_t^2(E,h,eta), ADM, MGS04 Eq.(20d)."""
+    mE2 = -2.0 * E
+    Eh2 = -2.0 * E * h * h
+    sqEh2 = np.sqrt(Eh2)
+    et2 = (
+        1.0 + 2.0 * E * h * h
+        + (mE2 / 4.0) * (-8.0 + 8.0 * eta - (-17.0 + 7.0 * eta) * Eh2)
+        + (mE2 ** 2 / 8.0) * (
+            8.0 + 4.0 * eta + 20.0 * eta ** 2
+            - Eh2 * (112.0 - 47.0 * eta + 16.0 * eta ** 2)
+            - 24.0 * sqEh2 * (-5.0 + 2.0 * eta)
+            + (4.0 / Eh2) * (17.0 - 11.0 * eta)
+            - (24.0 / sqEh2) * (5.0 - 2.0 * eta)
+        )
+        + (mE2 ** 3 / 192.0) * (
+            24.0 * (-2.0 + 5.0 * eta) * (-23.0 + 10.0 * eta + 4.0 * eta ** 2)
+            - 15.0 * (-528.0 + 200.0 * eta - 77.0 * eta ** 2 + 24.0 * eta ** 3) * Eh2
+            - 72.0 * (265.0 - 193.0 * eta + 46.0 * eta ** 2) * sqEh2
+            - (2.0 / Eh2) * (6732.0 + 117.0 * eta * np.pi ** 2
+                             - 12508.0 * eta + 2004.0 * eta ** 2)
+            + (2.0 / sqEh2) * (16380.0 - 19964.0 * eta
+                               + 123.0 * eta * np.pi ** 2 + 3240.0 * eta ** 2)
+            - (2.0 / Eh2 ** 1.5) * (10080.0 + 123.0 * eta * np.pi ** 2
+                                    - 13952.0 * eta + 1440.0 * eta ** 2)
+            + (96.0 / Eh2 ** 2) * (134.0 - 281.0 * eta
+                                   + 5.0 * eta * np.pi ** 2 + 16.0 * eta ** 2)
+        )
+    )
+    return et2
+@njit(fastmath=True, cache=True)
+def hinder_Mn_of_x_et(x, et, eta, PN_orbit):
+    """Mean motion n from (x, e_t) via Hinder 2010 Eq.(A1)-(A4). Returns Mn.
+
+    CRUCIAL conversion: x = (M omega)^{2/3}, omega = (2pi+Delta phi)/P, so
+    x != (Mn)^{2/3} beyond Newtonian order (periastron advance differs them).
+    Identical term-by-term to the dl_dt used in the x-model evolution.
+    """
+    e = et
+    result = x ** 1.5
+    if PN_orbit >= 1:
+        result += x ** 2.5 * (3.0 / (e * e - 1.0))
+    if PN_orbit >= 2:
+        result += x ** 3.5 * (((26.0 * eta - 51.0) * e * e + 28.0 * eta - 18.0)
+                              / (4.0 * (e * e - 1.0) ** 2))
+    if PN_orbit >= 3:
+        result += x ** 4.5 * (-1.0) / (128.0 * (1.0 - e * e) ** 3.5) * (
+            (1536.0 * eta - 3840.0) * e ** 4
+            + (1920.0 - 768.0 * eta) * e * e - 768.0 * eta
+            + np.sqrt(1.0 - e * e) * (
+                (1040.0 * eta ** 2 - 1760.0 * eta + 2496.0) * e ** 4
+                + (5120.0 * eta ** 2 + 123.0 * np.pi ** 2 * eta
+                   - 17856.0 * eta + 8544.0) * e * e
+                + 896.0 * eta ** 2 - 14624.0 * eta
+                + 492.0 * eta * np.pi ** 2 - 192.0) + 1920.0)
+    return result
+@njit(fastmath=True, cache=True)
+def _invert_orbit_jit(xvec, evec, eta, PN_orbit):
+    """JIT core: for each sample, get true n via Hinder A1-A4, then solve the
+    2x2 system { mgs_n_of_Eh=n, mgs_et2_of_Eh=e_t^2 } for (E,h) by damped
+    Newton with a numerical Jacobian and continuation seeding.
+
+    Returns (Evec, hvec, max_residual, n_bad) where n_bad counts samples
+    where the PN n(x,e_t) went unphysical (PN breakdown near merger).
+    """
+    nlen = xvec.shape[0]
+    Evec = np.empty(nlen)
+    hvec = np.empty(nlen)
+    max_res = 0.0
+    n_bad = 0
+
+    E = -0.5 * xvec[0]
+    h0sq = 1.0 - evec[0] * evec[0]
+    if h0sq < 1e-12:
+        h0sq = 1e-12
+    h = np.sqrt(h0sq / xvec[0])
+
+    for i in range(nlen):
+        nt = hinder_Mn_of_x_et(xvec[i], evec[i], eta, PN_orbit)
+        et2 = evec[i] * evec[i]
+
+        if (not np.isfinite(nt)) or nt <= 0.0:
+            # PN n(x,e_t) broke down; carry previous solution, flag.
+            n_bad += 1
+            Evec[i] = E
+            hvec[i] = h
+            continue
+
+        # damped Newton with numerical (central-difference) Jacobian
+        rn = 1.0e30
+        for _ in range(100):
+            f1 = mgs_n_of_Eh(E, h, eta) - nt
+            f2 = mgs_et2_of_Eh(E, h, eta) - et2
+            rn = np.sqrt(f1 * f1 + f2 * f2)
+            if rn < 1.0e-13:
+                break
+
+            dE = 1.0e-8 * (abs(E) + 1.0e-12)
+            dh = 1.0e-8 * (abs(h) + 1.0e-12)
+            # d(n,et2)/dE
+            n_Ep = mgs_n_of_Eh(E + dE, h, eta); n_Em = mgs_n_of_Eh(E - dE, h, eta)
+            e_Ep = mgs_et2_of_Eh(E + dE, h, eta); e_Em = mgs_et2_of_Eh(E - dE, h, eta)
+            J11 = (n_Ep - n_Em) / (2.0 * dE)
+            J21 = (e_Ep - e_Em) / (2.0 * dE)
+            # d(n,et2)/dh
+            n_hp = mgs_n_of_Eh(E, h + dh, eta); n_hm = mgs_n_of_Eh(E, h - dh, eta)
+            e_hp = mgs_et2_of_Eh(E, h + dh, eta); e_hm = mgs_et2_of_Eh(E, h - dh, eta)
+            J12 = (n_hp - n_hm) / (2.0 * dh)
+            J22 = (e_hp - e_hm) / (2.0 * dh)
+
+            det = J11 * J22 - J12 * J21
+            if abs(det) < 1.0e-30:
+                det = 1.0e-30 if det >= 0 else -1.0e-30
+            # Newton step: dp = J^{-1} f
+            dE_step = (J22 * f1 - J12 * f2) / det
+            dh_step = (-J21 * f1 + J11 * f2) / det
+
+            # damping: cap relative step
+            relcap = 0.5
+            if abs(dE_step) > relcap * (abs(E) + 1e-12):
+                dE_step = relcap * (abs(E) + 1e-12) * (1.0 if dE_step > 0 else -1.0)
+            if abs(dh_step) > relcap * (abs(h) + 1e-12):
+                dh_step = relcap * (abs(h) + 1e-12) * (1.0 if dh_step > 0 else -1.0)
+
+            E_new = E - dE_step
+            h_new = h - dh_step
+            # keep in physical region
+            if E_new >= 0.0:
+                E_new = -1e-12
+            if h_new <= 0.0:
+                h_new = 0.5 * h
+            E = E_new
+            h = h_new
+
+        Evec[i] = E
+        hvec[i] = h
+        if rn > max_res:
+            max_res = rn
+
+    return Evec, hvec, max_res, n_bad
+def reduced_energy_and_h(xvec, evec, eta, PN_orbit=3, method='invert',
+                         verbose=True):
+    """Map (x, e_t) -> (E, h) along the inspiral.
+
+    method='invert' (default): full PN. Two-step, gauge-consistent --
+        (1) n(x,e_t) from Hinder Eq.(A1-A4); (2) solve MGS04 Eq.(20c,20d)
+        for (E,h) by jitted damped Newton with continuation. E,h are ADM,
+        gauge-dependent at 2PN+.
+    method='newtonian': leading-order CLOSED FORM, fully vectorized --
+        E = -x/2,  h = sqrt((1-e_t^2)/x).
+        Instant; use as a baseline to compare against the full inversion.
+
+    Returns (Evec, hvec, max_residual). For 'newtonian', residual is 0.0.
+    """
+    vprint = print if verbose else (lambda *a, **k: None)
+    xvec = np.asarray(xvec, dtype=np.float64)
+    evec = np.asarray(evec, dtype=np.float64)
+
+    if method == 'newtonian':
+        Evec = -0.5 * xvec
+        one_m_e2 = np.clip(1.0 - evec ** 2, 1e-12, None)
+        hvec = np.sqrt(one_m_e2 / xvec)
+        vprint("  E,Lz via Newtonian closed form (E=-x/2, h=sqrt((1-e^2)/x)).")
+        return Evec, hvec, 0.0
+
+    if method != 'invert':
+        raise ValueError("method must be 'invert' or 'newtonian'")
+
+    Evec, hvec, max_res, n_bad = _invert_orbit_jit(xvec, evec,
+                                                   float(eta), int(PN_orbit))
+    vprint(f"  MGS04 inversion max residual: {max_res:.3e} (target <~1e-9)")
+    if n_bad > 0:
+        vprint(f"  [warn] {n_bad} sample(s) had unphysical n(x,e_t) "
+               f"(PN breakdown near merger); previous solution carried.")
+    return Evec, hvec, max_res
+# ============================================================================
+#  Orbit-only evolver  (mirrors eccGW_waveform up to the orbital level)
+# ============================================================================
+def ecc_orbit_evolution(f00, e0, timescale, m1, m2,
+                        l0=0.0, ts=None,
+                        PN_orbit=3, PN_reaction=2,
+                        N=50, max_memory_GB=16.0, verbose=True,
+                        kappaE=None, kappaJ=None,
+                        E_method='invert'):
+    """Evolve (x, e_t, l) and return [t, x, e, l, E, Lz].
+
+    Mirrors eccGW_waveform's argument list. kappaE/kappaJ are the 1.5PN
+    tail-enhancement callables; if PN_reaction < 1.5 they are unused.
+    E_method: 'invert' (full 3PN MGS04 inversion, jitted) or 'newtonian'
+    (leading-order closed form E=-x/2, h=sqrt((1-e^2)/x); fast baseline).
+    """
+    vprint = print if verbose else (lambda *a, **k: None)
+
+    if e0 == 0:
+        vprint("Warning: e0=0 unsupported; resetting to 1e-5.")
+        e0 = 1e-5
+
+    M = m1 + m2
+    smr = m1 * m2 / M / M     # symmetric mass ratio nu
+    nu = smr
+
+    if kappaE is None:
+        kappaE = lambda e: 1.0
+    if kappaJ is None:
+        kappaJ = lambda e: 1.0
+
+    # ---- 2PN edot helper (verbatim from parent) ---------------------------
+    def E2PN(e):
+        return -e * smr / (30240 * np.power(1 - e * e, 9 / 2)) * (
+            (2758560 * smr * smr - 4344852 * smr + 3786543) * np.power(e, 6.0) + (
+                42810096 * smr * smr - 78112266 * smr + 46579718) * np.power(e, 4.0) + (
+                48711348 * smr * smr - 35583228 * smr - 36993396) * e * e + 4548096 * smr * smr + np.sqrt(
+                1 - e * e) * ((2847600 - 1139040 * smr) * np.power(e, 4.0) + (
+                    35093520 - 14037408 * smr) * e * e - 5386752 * smr + 13466880)
+            + 13509360 * smr - 15198032)
+
+    # ---- coupled dx/dt, de/dt (verbatim from parent) ----------------------
+    def coupled_derivs(y, t):
+        x = y[0]; e = y[1]
+        if x < 0: x = 1e-8
+        if e < 0: e = 0.0
+        if e >= 1.0: e = 0.99999
+        one_minus_e2 = 1.0 - e * e
+        if one_minus_e2 < 1e-10: one_minus_e2 = 1e-10
+
+        xdot = np.power(x, 5.0) * 2 * (37 * np.power(e, 4.0) + 292 * e * e + 96) * smr / (
+            15 * np.power(one_minus_e2, 3.5))
+        if PN_reaction >= 1:
+            term_1pn = -(8288 * smr - 11717) * np.power(e, 6.0) \
+                       - 14 * (10122 * smr - 12217) * np.power(e, 4.0) \
+                       - 120 * (1330 * smr - 731) * e * e \
+                       - 16 * (924 * smr + 743)
+            xdot += np.power(x, 6.0) * smr / (420 * np.power(one_minus_e2, 4.5)) * term_1pn
+        if PN_reaction >= 1.5:
+            xdot += np.power(x, 6.5) * 256 / 5 * smr * pi * kappaE(e)
+        if PN_reaction >= 2:
+            term_2pn = (1964256 * smr * smr - 3259980 * smr + 3523113) * np.power(e, 8.0) + \
+                       (64828848 * smr * smr - 123108426 * smr + 83424402) * np.power(e, 6.0) + \
+                       (16650606060 * smr * smr - 207204264 * smr + 783768) * np.power(e, 4.0) + \
+                       (61282032 * smr * smr + 15464736 * smr - 92846560) * e * e + 1903104 * smr * smr + \
+                       np.sqrt(one_minus_e2) * ((2646000 - 1058400 * smr) * np.power(e, 6.0) + (
+                           64532160 - 25812864 * smr) * e * e - 580608 * smr + 1451520) + \
+                       4514976 * smr - 360224
+            xdot += np.power(x, 7.0) * smr / (45360 * np.power(one_minus_e2, 5.5)) * term_2pn
+        dx_dt_val = xdot / M
+
+        if e <= 1e-9:
+            edot_val = 0.0
+        else:
+            edot = np.power(x, 4.0) * (-e * (121 * e * e + 304) * smr / (15 * np.power(one_minus_e2, 2.5)))
+            if PN_reaction >= 1:
+                term_e_1pn = (93184 * smr - 125361) * np.power(e, 4.0) + \
+                             12 * (54271 * smr - 59834) * e * e + \
+                             8 * (28588 * smr + 8451)
+                edot += np.power(x, 5.0) * e * smr / (2520 * np.power(one_minus_e2, 3.5)) * term_e_1pn
+            if PN_reaction >= 1.5:
+                edot += np.power(x, 5.5) * 128 * smr * pi / 5 / e * (
+                    (e * e - 1) * kappaE(e) + np.sqrt(one_minus_e2) * kappaJ(e))
+            if PN_reaction >= 2:
+                edot += np.power(x, 6.0) * E2PN(e)
+            edot_val = edot / M
+        return [dx_dt_val, edot_val]
+
+    # ---- dl/dt (verbatim from parent) -------------------------------------
+    def dl_dt(x, e):
+        result = np.power(x, 3 / 2)
+        if PN_orbit >= 1:
+            result += np.power(x, 5 / 2) * 3 / (e * e - 1)
+        if PN_orbit >= 2:
+            result += np.power(x, 7 / 2) * ((26 * smr - 51) * e * e + 28 * smr - 18) / (
+                4 * np.power(e * e - 1, 2.0))
+        if PN_orbit >= 3:
+            result += np.power(x, 9 / 2) * (-1) / (128 * np.power(1 - e * e, 7 / 2)) * (
+                (1536 * smr - 3840) * np.power(e, 4.0) + (1920 - 768 * smr) * e * e - 768 * smr + np.sqrt(
+                    1 - e * e) * ((1040 * smr * smr - 1760 * smr + 2496) * np.power(e, 4.0) + (
+                        5120 * smr * smr + 123 * pi * pi * smr - 17856 * smr + 8544) * e * e
+                    + 896 * smr * smr - 14624 * smr + 492 * smr * pi * pi - 192) + 1920)
+        return result / M
+
+    def deltafvalue(a, e, Mtot):
+        n = np.power(a, -3 / 2) * np.sqrt(Mtot)
+        Porb = 1 / (n / (2 * pi))
+        return 6 * np.power(2 * pi, 2 / 3) / (1 - e * e) * np.power(Mtot, 2 / 3) * np.power(Porb, -5 / 3)
+
+    # ---- initial conditions (verbatim) ------------------------------------
+    a0 = np.power((m1 + m2) / (2 * pi * f00) ** 2, 1 / 3)
+    deltaf = deltafvalue(a0, e0, M)
+    f0 = f00 + deltaf / 2
+    omega0 = f0 * 2 * pi
+    x0 = np.power((m1 + m2) * omega0, 2 / 3)
+
+    vprint(f'PN_EOM={PN_orbit}; PN_Reaction={PN_reaction}')
+    vprint(f'm1,m2={m1},{m2}; e0={e0}')
+    vprint(f'f_orb={f00} Hz; f_angular={f0} Hz; deltaf={deltaf} Hz; x0={x0}')
+
+    rp_check = (1.0 - e0) / x0
+    if rp_check < 6.0:
+        raise ValueError(f"Initial condition inside ISCO: rp={rp_check:.2f} M (<6M).")
+
+    # ---- integrate x, e ---------------------------------------------------
+    t_accuracy = int(timescale * f0 * 2) + 5000
+    t_temp = np.linspace(0, timescale, num=t_accuracy)
+    y0 = [x0, e0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sol = sci_integrate.odeint(coupled_derivs, y0, t_temp, rtol=1e-12, atol=1e-14)
+        xresult = sol[:, 0]
+        eresult = sol[:, 1]
+
+        x_isco = 1.0 / 6.0
+        bad_mask = (xresult >= x_isco) | np.isnan(xresult) | np.isinf(xresult)
+        bad_indices = np.where(bad_mask)[0]
+        if len(bad_indices) > 0:
+            cutoff_index = bad_indices[0]
+            vprint(f"   Merger/ISCO at t={t_temp[cutoff_index]} s (x={xresult[cutoff_index]}). Truncating.")
+        else:
+            cutoff_index = len(t_temp)
+            if xresult[-1] < 0.1:
+                vprint(f"   Finished without merger (final x={xresult[-1]}).")
+
+        if cutoff_index < 2:
+            vprint("Error: truncated immediately.")
+            empty = np.array([])
+            return [empty, empty, empty, empty, empty, empty]
+
+        t_temp = t_temp[:cutoff_index]
+        xresult = xresult[:cutoff_index]
+        eresult = eresult[:cutoff_index]
+        eresult[eresult < 0] = 0.0
+
+        dl_vals = np.array([dl_dt(xresult[i], eresult[i]) for i in range(len(xresult))])
+        lresult = _cumtrapz(dl_vals, t_temp, initial=0) + l0
+
+    timescale = t_temp[-1]
+    flast = 1 / 2 / pi / M * np.power(xresult[-1], 3 / 2)
+    vprint(f'Evolution: {timescale/(365*24*3600):.4f} yr. f0={f0}, f_final={flast}')
+
+    # ---- resample to output grid (same logic as parent) -------------------
+    if ts is None:
+        controlnum2 = int(N * timescale * flast * np.power(1 - eresult[-1], -3 / 2)) + 1000
+    else:
+        controlnum2 = int(timescale / ts)
+    if controlnum2 < 100: controlnum2 = 100
+    est_memory_bytes = controlnum2 * 12 * 8
+    max_bytes = max_memory_GB * (1024 ** 3)
+    if est_memory_bytes > max_bytes:
+        controlnum2 = int(max_bytes / (12 * 8))
+        vprint(f"[WARN] memory cap -> {controlnum2} points")
+
+    t3 = np.linspace(0, timescale, num=controlnum2)
+
+    evec = np.interp(t3, t_temp, eresult)
+    xvec = np.interp(t3, t_temp, xresult)
+    lvec = np.interp(t3, t_temp, lresult)
+
+    # ---- E and Lz from (x, e_t) via MGS04 ADM inversion -------------------
+    Evec, hvec, max_res = reduced_energy_and_h(xvec, evec, nu,
+                                               PN_orbit=PN_orbit,
+                                               method=E_method,
+                                               verbose=verbose)
+    Lzvec = hvec  # reduced angular momentum h = L/(M mu)
+
+    vprint(f"Output points: {len(t3)}  dt={t3[1]-t3[0]:.4g} s")
+    vprint(f"  x:  [{xvec.min():.4g}, {xvec.max():.4g}]")
+    vprint(f"  e:  [{evec.min():.4g}, {evec.max():.4g}]")
+    vprint(f"  E:  [{Evec.min():.4g}, {Evec.max():.4g}]  (reduced xi=E/mu, ADM)")
+    vprint(f"  Lz: [{Lzvec.min():.4g}, {Lzvec.max():.4g}] (reduced h=L/(M mu), ADM)")
+
+    return [t3, xvec, evec, lvec, Evec, Lzvec]
