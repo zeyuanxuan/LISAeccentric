@@ -2544,7 +2544,7 @@ def reduced_energy_and_h(xvec, evec, eta, PN_orbit=3, method='invert',
 # ============================================================================
 #  Orbit-only evolver  (mirrors eccGW_waveform up to the orbital level)
 # ============================================================================
-def ecc_orbit_evolution(f00, e0, timescale, m1, m2,
+def ecc_orbit_evolution0(f00, e0, timescale, m1, m2,
                         l0=0.0, ts=None,
                         PN_orbit=3, PN_reaction=2,
                         N=50, max_memory_GB=16.0, verbose=True,
@@ -2729,6 +2729,201 @@ def ecc_orbit_evolution(f00, e0, timescale, m1, m2,
     Lzvec = hvec  # reduced angular momentum h = L/(M mu)
 
     vprint(f"Output points: {len(t3)}  dt={t3[1]-t3[0]:.4g} s")
+    vprint(f"  x:  [{xvec.min():.4g}, {xvec.max():.4g}]")
+    vprint(f"  e:  [{evec.min():.4g}, {evec.max():.4g}]")
+    vprint(f"  E:  [{Evec.min():.4g}, {Evec.max():.4g}]  (reduced xi=E/mu, ADM)")
+    vprint(f"  Lz: [{Lzvec.min():.4g}, {Lzvec.max():.4g}] (reduced h=L/(M mu), ADM)")
+
+    return [t3, xvec, evec, lvec, Evec, Lzvec]
+
+# ============================================================================
+#  Orbit-only evolver  (Strictly preserves original logic, optimized for speed)
+# ============================================================================
+def ecc_orbit_evolution(f00, e0, timescale, m1, m2,
+                        l0=0.0, ts=None,
+                        PN_orbit=3, PN_reaction=2,
+                        N=50, max_memory_GB=16.0, verbose=True,
+                        kappaE=None, kappaJ=None,
+                        E_method='invert'):
+    vprint = print if verbose else (lambda *a, **k: None)
+
+    if e0 == 0:
+        vprint("Warning: e0=0 unsupported; resetting to 1e-5.")
+        e0 = 1e-5
+
+    M = m1 + m2
+    smr = m1 * m2 / M / M  # symmetric mass ratio nu
+    nu = smr
+
+    if kappaE is None:
+        kappaE = lambda e: 1.0
+    if kappaJ is None:
+        kappaJ = lambda e: 1.0
+
+    # ---- 2PN edot helper (verbatim from parent) ---------------------------
+    def E2PN(e):
+        return -e * smr / (30240 * np.power(1 - e * e, 9 / 2)) * (
+                (2758560 * smr * smr - 4344852 * smr + 3786543) * np.power(e, 6.0) + (
+                42810096 * smr * smr - 78112266 * smr + 46579718) * np.power(e, 4.0) + (
+                        48711348 * smr * smr - 35583228 * smr - 36993396) * e * e + 4548096 * smr * smr + np.sqrt(
+            1 - e * e) * ((2847600 - 1139040 * smr) * np.power(e, 4.0) + (
+                35093520 - 14037408 * smr) * e * e - 5386752 * smr + 13466880)
+                + 13509360 * smr - 15198032)
+
+    # ---- coupled dx/dt, de/dt (verbatim from parent) ----------------------
+    def coupled_derivs(y, t):
+        x = y[0];
+        e = y[1]
+        if x < 0: x = 1e-8
+        if e < 0: e = 0.0
+        if e >= 1.0: e = 0.99999
+        one_minus_e2 = 1.0 - e * e
+        if one_minus_e2 < 1e-10: one_minus_e2 = 1e-10
+
+        xdot = np.power(x, 5.0) * 2 * (37 * np.power(e, 4.0) + 292 * e * e + 96) * smr / (
+                15 * np.power(one_minus_e2, 3.5))
+        if PN_reaction >= 1:
+            term_1pn = -(8288 * smr - 11717) * np.power(e, 6.0) \
+                       - 14 * (10122 * smr - 12217) * np.power(e, 4.0) \
+                       - 120 * (1330 * smr - 731) * e * e \
+                       - 16 * (924 * smr + 743)
+            xdot += np.power(x, 6.0) * smr / (420 * np.power(one_minus_e2, 4.5)) * term_1pn
+        if PN_reaction >= 1.5:
+            xdot += np.power(x, 6.5) * 256 / 5 * smr * pi * kappaE(e)
+        if PN_reaction >= 2:
+            term_2pn = (1964256 * smr * smr - 3259980 * smr + 3523113) * np.power(e, 8.0) + \
+                       (64828848 * smr * smr - 123108426 * smr + 83424402) * np.power(e, 6.0) + \
+                       (16650606060 * smr * smr - 207204264 * smr + 783768) * np.power(e, 4.0) + \
+                       (61282032 * smr * smr + 15464736 * smr - 92846560) * e * e + 1903104 * smr * smr + \
+                       np.sqrt(one_minus_e2) * ((2646000 - 1058400 * smr) * np.power(e, 6.0) + (
+                    64532160 - 25812864 * smr) * e * e - 580608 * smr + 1451520) + \
+                       4514976 * smr - 360224
+            xdot += np.power(x, 7.0) * smr / (45360 * np.power(one_minus_e2, 5.5)) * term_2pn
+        dx_dt_val = xdot / M
+
+        if e <= 1e-9:
+            edot_val = 0.0
+        else:
+            edot = np.power(x, 4.0) * (-e * (121 * e * e + 304) * smr / (15 * np.power(one_minus_e2, 2.5)))
+            if PN_reaction >= 1:
+                term_e_1pn = (93184 * smr - 125361) * np.power(e, 4.0) + \
+                             12 * (54271 * smr - 59834) * e * e + \
+                             8 * (28588 * smr + 8451)
+                edot += np.power(x, 5.0) * e * smr / (2520 * np.power(one_minus_e2, 3.5)) * term_e_1pn
+            if PN_reaction >= 1.5:
+                edot += np.power(x, 5.5) * 128 * smr * pi / 5 / e * (
+                        (e * e - 1) * kappaE(e) + np.sqrt(one_minus_e2) * kappaJ(e))
+            if PN_reaction >= 2:
+                edot += np.power(x, 6.0) * E2PN(e)
+            edot_val = edot / M
+        return [dx_dt_val, edot_val]
+
+    # ---- dl/dt (原样保持，但是可以支持向量化输入) -------------------------
+    def dl_dt(x, e):
+        result = np.power(x, 3 / 2)
+        if PN_orbit >= 1:
+            result += np.power(x, 5 / 2) * 3 / (e * e - 1)
+        if PN_orbit >= 2:
+            result += np.power(x, 7 / 2) * ((26 * smr - 51) * e * e + 28 * smr - 18) / (
+                    4 * np.power(e * e - 1, 2.0))
+        if PN_orbit >= 3:
+            result += np.power(x, 9 / 2) * (-1) / (128 * np.power(1 - e * e, 7 / 2)) * (
+                    (1536 * smr - 3840) * np.power(e, 4.0) + (1920 - 768 * smr) * e * e - 768 * smr + np.sqrt(
+                1 - e * e) * ((1040 * smr * smr - 1760 * smr + 2496) * np.power(e, 4.0) + (
+                    5120 * smr * smr + 123 * pi * pi * smr - 17856 * smr + 8544) * e * e
+                              + 896 * smr * smr - 14624 * smr + 492 * smr * pi * pi - 192) + 1920)
+        return result / M
+
+    def deltafvalue(a, e, Mtot):
+        n = np.power(a, -3 / 2) * np.sqrt(Mtot)
+        Porb = 1 / (n / (2 * pi))
+        return 6 * np.power(2 * pi, 2 / 3) / (1 - e * e) * np.power(Mtot, 2 / 3) * np.power(Porb, -5 / 3)
+
+    # ---- initial conditions (严格保持原版) --------------------------------
+    a0 = np.power((m1 + m2) / (2 * pi * f00) ** 2, 1 / 3)
+    deltaf = deltafvalue(a0, e0, M)
+    f0 = f00 + deltaf / 2
+    omega0 = f0 * 2 * pi
+    x0 = np.power((m1 + m2) * omega0, 2 / 3)
+
+    vprint(f'PN_EOM={PN_orbit}; PN_Reaction={PN_reaction}')
+    vprint(f'm1,m2={m1},{m2}; e0={e0}')
+    vprint(f'f_orb={f00} Hz; f_angular={f0} Hz; deltaf={deltaf} Hz; x0={x0}')
+
+    rp_check = (1.0 - e0) / x0
+    if rp_check < 6.0:
+        raise ValueError(f"Initial condition inside ISCO: rp={rp_check:.2f} M (<6M).")
+
+    # ---- integrate x, e (严格保持原版的致密网格与精度设置) ----------------
+    t_accuracy = int(timescale * f0 /10) + 5000
+    t_temp = np.linspace(0, timescale, num=t_accuracy)
+    y0 = [x0, e0]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # 严格保持原始的高容差设定 (rtol=1e-12, atol=1e-14)
+        sol = sci_integrate.odeint(coupled_derivs, y0, t_temp, rtol=1e-12, atol=1e-14)
+        xresult = sol[:, 0]
+        eresult = sol[:, 1]
+
+        x_isco = 1.0 / 6.0
+        bad_mask = (xresult >= x_isco) | np.isnan(xresult) | np.isinf(xresult)
+        bad_indices = np.where(bad_mask)[0]
+        if len(bad_indices) > 0:
+            cutoff_index = bad_indices[0]
+            vprint(f"   Merger/ISCO at t={t_temp[cutoff_index]} s (x={xresult[cutoff_index]}). Truncating.")
+        else:
+            cutoff_index = len(t_temp)
+            if xresult[-1] < 0.1:
+                vprint(f"   Finished without merger (final x={xresult[-1]}).")
+
+        if cutoff_index < 2:
+            vprint("Error: truncated immediately.")
+            empty = np.array([])
+            return [empty, empty, empty, empty, empty, empty]
+
+        t_temp = t_temp[:cutoff_index]
+        xresult = xresult[:cutoff_index]
+        eresult = eresult[:cutoff_index]
+        eresult[eresult < 0] = 0.0
+
+        # === 唯一优化的点：将原本的 for 循环替换为 Numpy 向量化计算 ===
+        # 原代码：dl_vals = np.array([dl_dt(xresult[i], eresult[i]) for i in range(len(xresult))])
+        dl_vals = dl_dt(xresult, eresult)
+
+        lresult = _cumtrapz(dl_vals, t_temp, initial=0) + l0
+
+    timescale = t_temp[-1]
+    flast = 1 / 2 / pi / M * np.power(xresult[-1], 3 / 2)
+    vprint(f'Evolution: {timescale / (365 * 24 * 3600):.4f} yr. f0={f0}, f_final={flast}')
+
+    # ---- resample to output grid (严格保持原版的插值与内存限制) -----------
+    if ts is None:
+        controlnum2 = int(N * timescale * flast * np.power(1 - eresult[-1], -3 / 2)) + 1000
+    else:
+        controlnum2 = int(timescale / ts)
+
+    if controlnum2 < 100: controlnum2 = 100
+    est_memory_bytes = controlnum2 * 12 * 8
+    max_bytes = max_memory_GB * (1024 ** 3)
+    if est_memory_bytes > max_bytes:
+        controlnum2 = int(max_bytes / (12 * 8))
+        vprint(f"[WARN] memory cap -> {controlnum2} points")
+
+    t3 = np.linspace(0, timescale, num=controlnum2)
+
+    evec = np.interp(t3, t_temp, eresult)
+    xvec = np.interp(t3, t_temp, xresult)
+    lvec = np.interp(t3, t_temp, lresult)
+
+    # ---- E and Lz from (x, e_t) via MGS04 ADM inversion -------------------
+    Evec, hvec, max_res = reduced_energy_and_h(xvec, evec, nu,
+                                               PN_orbit=PN_orbit,
+                                               method=E_method,
+                                               verbose=verbose)
+    Lzvec = hvec  # reduced angular momentum h = L/(M mu)
+
+    vprint(f"Output points: {len(t3)}  dt={t3[1] - t3[0]:.4g} s")
     vprint(f"  x:  [{xvec.min():.4g}, {xvec.max():.4g}]")
     vprint(f"  e:  [{evec.min():.4g}, {evec.max():.4g}]")
     vprint(f"  E:  [{Evec.min():.4g}, {Evec.max():.4g}]  (reduced xi=E/mu, ADM)")
