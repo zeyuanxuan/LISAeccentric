@@ -639,6 +639,11 @@ if evolve_res is not None:
 
 ### 3️⃣ Population analysis
 
+> **⚠️ Note on LIGO merger eccentricity conventions:** The reference frequency at which the sampled eccentricities are defined differs by channel:
+> * **GN** and **Field** `sample_eccentricities()` return eccentricities defined at **orbital frequency** $f_{\rm orb} = 10$ Hz.
+> * **GC** `sample_eccentricities()` returns eccentricities defined at **peak GW frequency** $f_{\rm peak} = f_{\rm orb}\,(1+e)^{1.1954}/(1-e)^{1.5} = 10$ Hz (Wen 2003, eq. 36; see [`compute_fpeak`](#compute_fpeak)).
+
+
 ### 3.1 Galactic Nuclei (GN)
 This module models Binary Black Holes formed dynamically in Milky Way–like galactic nuclei (due to the perturbation of a central supermassive black hole). It is based on detailed three-body simulations.
 
