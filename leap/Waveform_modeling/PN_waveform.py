@@ -604,7 +604,7 @@ def _dSNR_low_E_kernel(n_arr, g_vals, forb_val, h0_val, use_file, log_f, log_asd
             total += term
 
     return total
-def dSNR2dt_numpy(m1, m2, a, e, Dl):
+def dSNR2dt_numpy_fixedLISA(m1, m2, a, e, Dl):
     """
     Optimized dSNR2dt using Numba Kernels.
     Modifications: High E mode now uses log-uniform frequency grid.
@@ -678,6 +678,162 @@ def dSNR2dt_numpy(m1, m2, a, e, Dl):
         )
 
         return total_sum
+
+# =============================================================================
+# PATCH for PN_waveform.py  --  SNR harmonic-integration band auto-tracking
+# =============================================================================
+#
+# WHY:
+#   dSNR2dt_numpy() hardcoded the integration band fmin=1e-8, fmax=0.1, fnumber=200.
+#   That band is the LISA mHz band. For a LIGO noise curve the source harmonics
+#   live at ~10-2000 Hz, entirely above fmax=0.1 Hz, so the harmonic sum picks up
+#   essentially nothing and SNR collapses to ~0 (the thin top stripe you saw).
+#
+# WHAT THIS PATCH DOES:
+#   The band is now derived from the *currently active* noise curve:
+#     - use_file == False (default / no curve injected):
+#         returns EXACTLY the legacy band (1e-8, 0.1, 200)  -> bit-identical results.
+#     - use_file == True  (a curve was injected via update_noise_curve, e.g. LIGO):
+#         follows that curve's [f_min, f_max] and rescales fnumber so the
+#         log-frequency sampling density stays the same (~28.6 points / decade).
+#
+#   Nothing else changes. SNR(), the two JIT kernels, _get_sn_val_jit(), and
+#   core.py's _inject_noise_data() are untouched.
+#
+# HOW TO APPLY (two edits in PN_waveform.py):
+#   1. Paste the block "[1] INSERT" somewhere above dSNR2dt_numpy (e.g. right
+#      before its 'def dSNR2dt_numpy(...)', around line 607).
+#   2. Replace the whole body of the existing dSNR2dt_numpy (lines ~607-680)
+#      with the block "[2] REPLACE" below. Only the first three lines of the
+#      body differ from the original (the fmin/fmax/fnumber assignment).
+#
+#   dSNR2dt_numpy_old() (line ~469) is dead code (SNR uses dSNR2dt_numpy); leave
+#   it as-is, or apply the same one-line change if you want it consistent.
+# =============================================================================
+
+
+# ----------------------------------------------------------------------------
+# [1] INSERT  (module-level, above dSNR2dt_numpy)
+# ----------------------------------------------------------------------------
+
+# Legacy hardcoded integration band. Reproduces the original results exactly
+# whenever no external noise curve is injected (use_file is False).
+_DEFAULT_FMIN = 1e-8
+_DEFAULT_FMAX = 0.1
+_DEFAULT_FNUMBER = 200
+_DEFAULT_DECADES = np.log10(_DEFAULT_FMAX / _DEFAULT_FMIN)  # = 7.0
+
+
+def _get_integration_band():
+    """
+    Frequency band (fmin, fmax, fnumber) for the SNR harmonic integral.
+
+    Default / analytical noise (use_file False)  -> (1e-8, 0.1, 200), i.e. the
+    original hardcoded LISA band, so legacy results are reproduced bit-for-bit.
+
+    Injected file noise with its own frequency axis (use_file True) -> that
+    curve's [f_min, f_max], with fnumber rescaled to preserve the per-decade
+    log-frequency sampling density of the default band (~28.6 points/decade).
+    """
+    nd = _LISA_NOISE_DATA
+    if nd is not None and nd.get('use_file', False):
+        try:
+            fmin = float(nd['f_min'])
+            fmax = float(nd['f_max'])
+        except (KeyError, TypeError, ValueError):
+            return _DEFAULT_FMIN, _DEFAULT_FMAX, _DEFAULT_FNUMBER
+
+        if (not np.isfinite(fmin)) or (not np.isfinite(fmax)) \
+                or (fmin <= 0.0) or (fmax <= fmin):
+            return _DEFAULT_FMIN, _DEFAULT_FMAX, _DEFAULT_FNUMBER
+
+        decades = np.log10(fmax / fmin)
+        fnumber = int(round(_DEFAULT_FNUMBER * decades / _DEFAULT_DECADES))
+        fnumber = max(fnumber, 16)  # floor so coarse curves still resolve the peak
+        return fmin, fmax, fnumber
+
+    return _DEFAULT_FMIN, _DEFAULT_FMAX, _DEFAULT_FNUMBER
+
+
+# ----------------------------------------------------------------------------
+# [2] REPLACE  (the existing dSNR2dt_numpy)
+# ----------------------------------------------------------------------------
+def dSNR2dt_numpy(m1, m2, a, e, Dl):
+    """
+    Optimized dSNR2dt using Numba Kernels.
+    Modifications: High E mode uses a log-uniform frequency grid; the
+    integration band now auto-tracks the active noise curve via
+    _get_integration_band() (legacy band reproduced when use_file is False).
+    """
+    # --- only change vs. original: band is no longer hardcoded ---
+    fmin, fmax, fnumber = _get_integration_band()
+
+    f0 = 1. / 2. / pi * np.sqrt(m1 + m2) * np.power(a, -1.5)
+
+    threshold = (fmax - fmin) / fnumber
+
+    # Prepare Noise Data for JIT
+    use_file = False
+    log_f_g = np.array([0.0])
+    log_asd_g = np.array([0.0])
+    slope = 0.0
+    lf0 = 0.0
+    lasd0 = 0.0
+
+    if _LISA_NOISE_DATA is not None and _LISA_NOISE_DATA.get('use_file', False):
+        use_file = True
+        log_f_g = _LISA_NOISE_DATA['log_f']
+        log_asd_g = _LISA_NOISE_DATA['log_asd']
+        slope = _LISA_NOISE_DATA['low_f_slope']
+        lf0 = _LISA_NOISE_DATA['log_f_0']
+        lasd0 = _LISA_NOISE_DATA['log_asd_0']
+
+    # --- High Eccentricity Mode ---
+    if f0 * 10 < threshold:
+        h = np.sqrt(32. / 5.) * m1 * m2 / Dl / a
+
+        f_arr = np.geomspace(fmin, fmax, fnumber)
+
+        # d(ln f) = ln(fmax / fmin) / (N - 1)
+        delta_log_f = np.log(fmax / fmin) / (fnumber - 1)
+
+        # 2. Vectorized n calculation
+        n_vals = (f_arr / f0).astype(np.int64)
+
+        # 3. Calculate g using SciPy
+        g_vals = g(n_vals, e)
+
+        # 4. Kernel Summation (JIT)
+        raw_sum = _dSNR_high_E_kernel(
+            f_arr, n_vals, g_vals, delta_log_f,
+            use_file, log_f_g, log_asd_g, slope, lf0, lasd0
+        )
+
+        return raw_sum * 8 * h * h * f0
+
+    # --- Low Eccentricity Mode ---
+    else:
+        nmin = int(fmin / f0) + 1
+        nmax = int(fmax / f0) + 2
+
+        n_arr = np.arange(nmin, nmax)
+        if len(n_arr) == 0:
+            return 0.0
+
+        # 1. Calculate g (SciPy)
+        g_vals = g(n_arr, e)
+
+        val_h0 = h0(a, m1, m2, Dl)
+        val_forb = forb(m1 + m2, a)
+
+        # 2. Kernel Summation (JIT)
+        total_sum = _dSNR_low_E_kernel(
+            n_arr, g_vals, val_forb, val_h0,
+            use_file, log_f_g, log_asd_g, slope, lf0, lasd0
+        )
+
+        return total_sum
+
 def SNR(m1, m2, a, e, Dl, tobs):
     m1=m1
     m2=m2
