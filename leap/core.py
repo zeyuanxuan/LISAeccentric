@@ -463,7 +463,8 @@ class CompactBinary:
             self.extra['snr_analytical'] = 0.0
             return 0.0
 
-        log_min = np.log10(max(t_end_s * 1e-6, 1.0))
+        #log_min = np.log10(max(t_end_s * 1e-6, 1.0))
+        log_min = np.log10(t_end_s * 1e-6)
         log_max = np.log10(t_end_s)
         tau = np.logspace(log_max, log_min, n_segments + 1)
         t_grid = t_end_s - tau
@@ -1543,7 +1544,8 @@ class LISAeccentric:
             if t_end_s <= 0:
                 return 0.0
 
-            log_min = np.log10(max(t_end_s * 1e-6, 1.0))
+            #log_min = np.log10(max(t_end_s * 1e-6, 1.0))
+            log_min = np.log10(t_end_s * 1e-6)
             log_max = np.log10(t_end_s)
             tau = np.logspace(log_max, log_min, n_segments + 1)
             t_grid = t_end_s - tau
