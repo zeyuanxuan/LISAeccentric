@@ -1069,6 +1069,90 @@ plt.show()
 <img src="https://raw.githubusercontent.com/zeyuanxuan/lisa-leap/main/images/egwaveform1.png" width="500">
 </p>
 
+#### `leap.Waveform.compute_orbit_evolution()`
+Evolves the orbital dynamics **without generating a waveform** and returns the raw trajectory vectors. This is the fast path when you only need the frequency / eccentricity / phase evolution. It mirrors `compute_waveform`'s input handling but returns the orbit state instead of $h_+, h_\times$.
+
+* **Input**:
+    * **Input mode selector** (same as `compute_waveform`):
+        * `input_mode` (str, optional): How `a_au` is interpreted. Default `'a_au'`.
+            * `'a_au'`: semi-major axis [au].
+            * `'forb_Hz'`: orbital frequency [Hz].
+            * `'fangular_Hz'`: angular frequency [Hz] (the solver back-computes the corresponding $f_{\rm orb}$).
+        * `a_au` (float): value corresponding to `input_mode` (name kept for API stability even though the meaning switches).
+    * **Physical parameters**:
+        * `m1_msun`, `m2_msun` (float): component masses [$M_\odot$].
+        * `e` (float): initial orbital eccentricity.
+        * `tobs_yr` (float): evolution duration [years]. Integration stops early if the system reaches merger.
+        * `initial_orbital_phase` (float, optional): initial **mean anomaly** $l_0$ [rad]. Default `0`.
+    * **Model & sampling**:
+        * `PN_orbit`, `PN_reaction` (int, optional): post-Newtonian orders for the conservative orbit and for the radiation reaction. Default `3`, `2` (the 3.5PN-flux evolution used to generate the injected signal).
+        * `ts` (float, optional): fixed time step [s]. If `None`, adaptive `points_per_peak` sampling is used.
+        * `points_per_peak` (int, optional): adaptive samples per periastron. Default `50`.
+        * `max_memory_GB` (float, optional): array-size safety limit. Default `16.0`.
+    * **Derived-quantity switches**:
+        * `E_method` (str, optional): energy-inversion route. Default `'invert'`.
+        * `compute_a` (bool, optional): also return the semi-major axis $a(t)$ [au] via the leading-PN relation $a = M/x$. Default `False`.
+        * `compute_pe` (bool, optional): also return the $(p, e)$ pair via BOTH the PN route ($p=(1-e_t^2)/x$, $e=e_t$) and the geodesic route (Schwarzschild $(\bar E, L_z)$ inversion). Default `False`.
+        * `e_zero_point` (str, optional): `'add_one'` ($\bar E = 1 + \xi$) or `'as_is'` ($\bar E = \xi$). Default `'add_one'`.
+    * `verbose`, `plot` (bool, optional): logging / diagnostic plot. Default `True`.
+* **Output**:
+    * A **dict** of trajectory vectors, all sampled on the same time grid `t`:
+        * `t` — time vector [s].                                             (always)
+        * `x` — PN parameter $x = (M\Omega)^{2/3}$. The instantaneous orbital frequency follows as
+              $f_{\rm orb}(t) = x(t)^{3/2} / (2\pi M_{\rm total})$,
+          with $M_{\rm total}$ in geometrized seconds ($M_\odot \to$ `m_sun` $\approx 4.9255\times10^{-6}$ s).   (always)
+        * `e_t` — eccentricity $e(t)$.                                       (always)
+        * `l` — **mean anomaly** $l(t)$ [rad]. Periastron (burst) passages occur at $l = 2\pi k$, so $l(t)$ IS the exact recurrence phase: warping time by $l(t)/2\pi$ makes the periastron bursts exactly equispaced.   (always)
+        * `E`, `Lz` — specific energy (PN binding energy $\xi$) and $z$-angular momentum.   (always)
+        * `a_au` — semi-major axis [au].                                     (if `compute_a`)
+        * `p_pn`, `e_pn` — semi-latus rectum / eccentricity, PN route.       (if `compute_pe`)
+        * `p_geo`, `e_geo` — semi-latus rectum / eccentricity, geodesic route.   (if `compute_pe`)
+
+**Example:**
+```python
+import numpy as np
+
+# Extract the exact f_orb(t), e(t) and recurrence phase l(t) of an injected BNS,
+# for building a trajectory-exact de-chirp warp to compare against Peters.
+m_sun  = 4.9254909e-6                 # GM_sun / c^3 [s]
+m1, m2 = 1.4, 1.4
+Mtot_s = (m1 + m2) * m_sun            # total mass in geometrized seconds
+
+orb = leap.Waveform.compute_orbit_evolution(
+    m1_msun=m1, m2_msun=m2,
+    a_au=5.4, e=0.56,                 # input_mode='forb_Hz': value is f_orb = 5.4 Hz
+    input_mode='forb_Hz',
+    tobs_yr=1e-4,
+    initial_orbital_phase=0.0,
+    PN_orbit=3, PN_reaction=2,        # same PN orders as the injected waveform
+    ts=None, points_per_peak=50,
+    compute_a=False, compute_pe=False,
+    plot=False, verbose=True,
+)
+
+t   = orb['t']                                   # [s]
+e_t = orb['e_t']                                 # e(t)
+l   = orb['l']                                   # mean anomaly [rad] (recurrence phase)
+f_orb_t = orb['x']**1.5 / (2 * np.pi * Mtot_s)   # instantaneous f_orb(t) [Hz]
+
+print(f"   samples : {t.shape[0]}")
+print(f"   f_orb   : {f_orb_t[0]:.3f} -> {f_orb_t[-1]:.3f} Hz")
+print(f"   e       : {e_t[0]:.3f} -> {e_t[-1]:.3f}")
+
+# Exact warp: tau(t) proportional to l(t) makes periastron passages equispaced;
+# Peters warp approximates the same l(t) with a 2-parameter (r, e0) family.
+```
+* **Output** (illustrative):
+    ```
+       samples : 74000
+       f_orb   : 5.400 -> 30.7 Hz
+       e       : 0.560 -> 0.031
+    ```
+
+> **Note:** `compute_orbit_evolution` does NOT take `Dl_kpc`, `theta`, `phi`, or `psi`
+> (those affect only the waveform / detector response, not the orbit). Pass only the
+> parameters listed above.
+
 ---
 
 #### `leap.Waveform.compute_LISA_response()`
