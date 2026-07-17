@@ -3056,21 +3056,17 @@ def ecc_orbit_evolution(f00, e0, timescale, m1, m2,
     smr = m1 * m2 / M / M  # symmetric mass ratio nu
     nu = smr
 
-    if kappaE is None:
-        kappaE = lambda e: 1.0
-    if kappaJ is None:
-        kappaJ = lambda e: 1.0
-    # if kappaE is None or kappaJ is None:
-    #     # 之前这里直接 fallback 成 lambda e: 1.0，等于关掉了 1.5PN 尾项增强，
-    #     # 会导致这里积分出来的轨道和 eccGW_waveform 实际用的轨道严重偏离
-    #     # （e=0.5 时偏差~13倍，e=0.7 时~167倍）。
-    #     # 默认改为调用和 eccGW_waveform 完全一样的精确表格计算，
-    #     # 只有调用方显式传入 kappaE/kappaJ 时才会被覆盖。
-    #     _kappaE_exact, _kappaJ_exact = _build_kappaEJ_functions(e0, verbose=verbose)
-    #     if kappaE is None:
-    #         kappaE = _kappaE_exact
-    #     if kappaJ is None:
-    #         kappaJ = _kappaJ_exact
+    if kappaE is None or kappaJ is None:
+        # 之前这里直接 fallback 成 lambda e: 1.0，等于关掉了 1.5PN 尾项增强，
+        # 会导致这里积分出来的轨道和 eccGW_waveform 实际用的轨道严重偏离
+        # （e=0.5 时偏差~13倍，e=0.7 时~167倍）。
+        # 默认改为调用和 eccGW_waveform 完全一样的精确表格计算，
+        # 只有调用方显式传入 kappaE/kappaJ 时才会被覆盖。
+        _kappaE_exact, _kappaJ_exact = _build_kappaEJ_functions(e0, verbose=verbose)
+        if kappaE is None:
+            kappaE = _kappaE_exact
+        if kappaJ is None:
+            kappaJ = _kappaJ_exact
 
     # ---- 2PN edot helper (verbatim from parent) ---------------------------
     def E2PN(e):
