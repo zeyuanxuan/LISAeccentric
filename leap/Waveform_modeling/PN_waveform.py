@@ -2697,6 +2697,151 @@ def reduced_energy_and_h(xvec, evec, eta, PN_orbit=3, method='invert',
         vprint(f"  [warn] {n_bad} sample(s) had unphysical n(x,e_t) "
                f"(PN breakdown near merger); previous solution carried.")
     return Evec, hvec, max_res
+
+def _build_kappaEJ_functions(e0, verbose=True):
+    """
+    Build the exact 1.5PN tail-enhancement functions kappaE(e), kappaJ(e).
+
+    Verbatim copy of the table-building / caching logic inlined inside
+    eccGW_waveform (and eccGW_waveform0), factored out so that any function
+    needing the *exact* kappaE/kappaJ (e.g. ecc_orbit_evolution) can call
+    this instead of silently falling back to kappaE=kappaJ=1.
+
+    Returns
+    -------
+    kappaE, kappaJ : callables
+        Same behavior as the kappaE/kappaJ closures defined inside
+        eccGW_waveform.
+    """
+    vprint = print if verbose else lambda *args, **kwargs: None
+
+    dist_to_1 = 1.0 - e0
+    if dist_to_1 < 0: dist_to_1 = 0
+    margin = min(0.0001, dist_to_1 * 0.05)
+    required_safe_e0 = e0 + margin
+    limit_e = 0.99999
+    if required_safe_e0 > limit_e: required_safe_e0 = limit_e
+
+    try:
+        current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        current_script_dir = os.getcwd()
+
+    CACHE_FILE = os.path.join(current_script_dir, 'eccGW_1p5PN_table.npz')
+    table_loaded = False
+    kE_vals = None
+    kJ_vals = None
+    e_grid = None
+    if os.path.exists(CACHE_FILE):
+        try:
+            data = np.load(CACHE_FILE)
+            cached_e_grid = data['e_grid']
+            cached_max_e = cached_e_grid[-1]
+            if cached_max_e >= required_safe_e0 - 1e-8:
+                e_grid = cached_e_grid
+                kE_vals = data['kE_vals']
+                kJ_vals = data['kJ_vals']
+                table_loaded = True
+            else:
+                pass
+        except Exception as e:
+            pass
+    if not table_loaded:
+        def compute_kappa_single_point(e):
+            e2 = e * e
+            if e < 1e-6:
+                return 1.0 + 1.625 * e2, 1.0 + 0.875 * e2
+            local_N = int(30.0 / np.power(1.0 - e, 1.5)) + 20
+            if local_N > 100000: local_N = 100000
+
+            inv_e = 1.0 / e
+            inv_e2 = inv_e * inv_e
+            inv_e4 = inv_e2 * inv_e2
+
+            cE1 = -e2 - 3 * inv_e2 + inv_e4 + 3
+            cE2 = 1.0 / 3.0 - inv_e2 + inv_e4
+            cE3 = -3 * e - 4 * inv_e2 * inv_e + 7 * inv_e
+            cE4 = e2 + inv_e2 - 2
+            cE5 = inv_e2 - 1
+
+            sqrt_1_e2 = np.sqrt(1 - e2)
+            inv_e3 = inv_e2 * inv_e
+            cJ1 = -2 * inv_e4 - 1 + 3 * inv_e2
+            cJ2 = 2 * (e + inv_e3 - 2 * inv_e)
+            cJ3 = -inv_e + 2 * inv_e3
+            cJ4 = 2 * (1 - inv_e2)
+
+            sum_E = 0.0
+            sum_J = 0.0
+
+            for p in range(1, local_N + 1):
+                pe = p * e
+                jpe = scipy.special.jv(p, pe)
+                jp_minus_1 = scipy.special.jv(p - 1, pe)
+                jtpe = jp_minus_1 - inv_e * jpe
+                p2 = p * p
+                term_E = ((cE1 * p2 + cE2) * jpe ** 2 + cE3 * p * jtpe * jpe + (cE4 * p2 + cE5) * jtpe ** 2)
+                current_add_E = 0.25 * (p * p2) * term_E
+                sum_E += current_add_E
+                term_J = (cJ1 * p * jpe ** 2 + (cJ2 * p2 + cJ3) * jtpe * jpe + cJ4 * p * jtpe ** 2)
+                current_add_J = 0.5 * p2 * sqrt_1_e2 * term_J
+                sum_J += current_add_J
+                if p > 20:
+                    abs_sum_E = abs(sum_E)
+                    if abs_sum_E > 1e-100:
+                        if abs(current_add_E) / abs_sum_E < 1e-13: break
+                    elif abs(current_add_E) < 1e-13:
+                        break
+            return sum_E, sum_J
+
+        target_max_e = max(0.95, required_safe_e0)
+        if target_max_e > limit_e: target_max_e = limit_e
+        print(f"   Fast-computation table not found. Building new table up to e={target_max_e}...")
+
+        grid_size = 500
+        split_point = max(0.9, target_max_e - 0.05)
+        if split_point > target_max_e: split_point = target_max_e * 0.9
+        e_grid_lin = np.linspace(0, split_point, int(grid_size * 0.3))
+        log_start = np.log10(1.0 - split_point)
+        log_end = np.log10(1.0 - target_max_e)
+        e_grid_log = 1.0 - np.logspace(log_start, log_end, int(grid_size * 0.7))
+        e_grid_log = np.sort(e_grid_log)
+        e_grid = np.unique(np.concatenate((e_grid_lin, e_grid_log)))
+        if e_grid[-1] < target_max_e: e_grid = np.append(e_grid, target_max_e)
+
+        t_start_table = time.time()
+        n_grid = len(e_grid)
+        kE_vals = np.empty(n_grid)
+        kJ_vals = np.empty(n_grid)
+        for i in range(n_grid):
+            val = e_grid[i]
+            kE, kJ = compute_kappa_single_point(val)
+            kE_vals[i] = kE
+            kJ_vals[i] = kJ
+            if i % 100 == 0:
+                print(f"     Computing... {i}/{n_grid} (e={val:.5f})")
+        vprint(f"   Table computed in {time.time() - t_start_table:.2f}s.")
+        try:
+            np.savez(CACHE_FILE, e_grid=e_grid, kE_vals=kE_vals, kJ_vals=kJ_vals)
+            print(f"   Table saved to '{CACHE_FILE}'.")
+        except Exception as e:
+            print(f"   [Warning] Failed to save cache: {e}")
+
+    kappaE_interp = sci_interpolate.interp1d(e_grid, kE_vals, kind='cubic', fill_value="extrapolate")
+    kappaJ_interp = sci_interpolate.interp1d(e_grid, kJ_vals, kind='cubic', fill_value="extrapolate")
+
+    def kappaE(e):
+        if e > e_grid[-1]: return kE_vals[-1]
+        if e < 1e-4: return 1.0
+        return kappaE_interp(e)
+
+    def kappaJ(e):
+        if e > e_grid[-1]: return kJ_vals[-1]
+        if e < 1e-4: return 1.0
+        return kappaJ_interp(e)
+
+    return kappaE, kappaJ
+
 # ============================================================================
 #  Orbit-only evolver  (mirrors eccGW_waveform up to the orbital level)
 # ============================================================================
@@ -2911,10 +3056,17 @@ def ecc_orbit_evolution(f00, e0, timescale, m1, m2,
     smr = m1 * m2 / M / M  # symmetric mass ratio nu
     nu = smr
 
-    if kappaE is None:
-        kappaE = lambda e: 1.0
-    if kappaJ is None:
-        kappaJ = lambda e: 1.0
+    if kappaE is None or kappaJ is None:
+        # 之前这里直接 fallback 成 lambda e: 1.0，等于关掉了 1.5PN 尾项增强，
+        # 会导致这里积分出来的轨道和 eccGW_waveform 实际用的轨道严重偏离
+        # （e=0.5 时偏差~13倍，e=0.7 时~167倍）。
+        # 默认改为调用和 eccGW_waveform 完全一样的精确表格计算，
+        # 只有调用方显式传入 kappaE/kappaJ 时才会被覆盖。
+        _kappaE_exact, _kappaJ_exact = _build_kappaEJ_functions(e0, verbose=verbose)
+        if kappaE is None:
+            kappaE = _kappaE_exact
+        if kappaJ is None:
+            kappaJ = _kappaJ_exact
 
     # ---- 2PN edot helper (verbatim from parent) ---------------------------
     def E2PN(e):
