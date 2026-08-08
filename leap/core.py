@@ -1743,10 +1743,100 @@ class LISAeccentric:
     # MODULE 5: Noise Handler (Updated)
     # ==========================================================================
     class _Noise_Handler:
+        # Files shipped with the package. Everything else that looks like a
+        # noise file in this folder is a leftover and may be cleaned away.
+        CANONICAL_FILES = (
+            'LISA_noise_ASD.csv',           # runtime curve read by PN_waveform
+            'LISA_noise_ASD_official.csv',  # built-in model 'official'
+            'LISA_noise_ASD_N2A5.csv',      # built-in model 'N2A5'
+            'LIGO.txt',                     # built-in model 'LIGO'
+        )
+        BUILTIN_MODELS = ('official', 'N2A5', 'LIGO')
+        _MISSING = object()
+
         def __init__(self):
             current_dir = os.path.dirname(os.path.abspath(__file__))
             self.noise_file_path = os.path.join(current_dir, 'LISA_noise_ASD.csv')
             self.base_backup_name = 'LISA_noise_ASD_original'
+            self.ligo_file_path = os.path.join(current_dir, 'LIGO.txt')
+            # In-memory swap state. The default update/recover path never
+            # touches any file inside the package, so an arbitrary number of
+            # concurrent processes can swap curves independently.
+            self._mem_backup = self._MISSING
+            self._active_model = None
+            self._persisted = False
+
+        # ----------------------------------------------------------------------
+        # Folder hygiene. Called only by update_noise_curve / recover_noise_curve
+        # (i.e. when the curve is being changed), never on a plain read.
+        # ----------------------------------------------------------------------
+        @staticmethod
+        def _file_is_usable(path):
+            try:
+                return os.path.isfile(path) and os.path.getsize(path) > 0
+            except OSError:
+                return False
+
+        def repair_noise_dir(self, verbose=True):
+            """
+            Restore the package noise folder to its shipped state:
+              * remove stray files left behind by file-swapping runs
+                (LISA_noise_ASD_original_*.csv and similar), keeping only
+                CANONICAL_FILES;
+              * rebuild LISA_noise_ASD.csv from the official (or N2A5) model if
+                it was moved away or truncated.
+            The rebuild is atomic (write temp + os.replace) and every step
+            swallows its own errors, so this is safe to call concurrently from
+            many ranks. Set LEAP_NOISE_NO_REPAIR=1 to disable entirely.
+            """
+            if os.environ.get('LEAP_NOISE_NO_REPAIR', '') == '1':
+                return
+            target_dir = os.path.dirname(self.noise_file_path)
+            removed = 0
+            try:
+                entries = os.listdir(target_dir)
+            except OSError as e:
+                if verbose:
+                    print(f"[Noise] Repair: cannot list {target_dir} ({e})")
+                return
+
+            for fn in entries:
+                if fn in self.CANONICAL_FILES:
+                    continue
+                if not (fn.startswith('LISA_noise_ASD') and fn.endswith('.csv')):
+                    continue
+                try:
+                    os.remove(os.path.join(target_dir, fn))
+                    removed += 1
+                except OSError:
+                    pass  # another rank removed it first
+
+            if not self._file_is_usable(self.noise_file_path):
+                source = os.path.join(target_dir, 'LISA_noise_ASD_official.csv')
+                if not self._file_is_usable(source):
+                    source = os.path.join(target_dir, 'LISA_noise_ASD_N2A5.csv')
+                if self._file_is_usable(source):
+                    tmp = f"{self.noise_file_path}.tmp.{os.getpid()}"
+                    try:
+                        shutil.copyfile(source, tmp)
+                        os.replace(tmp, self.noise_file_path)
+                        if verbose:
+                            print(f"[Noise] Repair: rebuilt "
+                                  f"{os.path.basename(self.noise_file_path)} from "
+                                  f"{os.path.basename(source)}")
+                    except OSError as e:
+                        try:
+                            os.remove(tmp)
+                        except OSError:
+                            pass
+                        if verbose:
+                            print(f"[Noise] Repair: rebuild failed ({e})")
+                elif verbose:
+                    print("[Noise] Repair: no canonical source found to rebuild "
+                          "the runtime curve.")
+
+            if removed and verbose:
+                print(f"[Noise] Repair: removed {removed} stray file(s).")
 
         def generate_noise_data(self, model='official', f_min=1e-6, f_max=1.0, n_points=3000):
             """
@@ -1843,6 +1933,35 @@ class LISAeccentric:
                     print(f"[Noise] Error processing official file: {e}")
                     return self.generate_noise_data(model='N2A5', f_min=f_min, f_max=f_max, n_points=n_points)
 
+            elif model in ('LIGO', 'ligo', 'ground'):
+                # === Ground-based ASD, read from LIGO.txt next to core.py ===
+                # Returned on the file's own frequency grid: the ground-based
+                # band (~1 Hz - 10 kHz) has nothing to do with the LISA
+                # f_min/f_max defaults, so resampling onto flist is skipped.
+                path = os.environ.get('LEAP_LIGO_NOISE', self.ligo_file_path)
+                if not self._file_is_usable(path):
+                    print(f"[Noise] Error: LIGO noise file not found at {path}")
+                    return flist, np.zeros_like(flist)
+                try:
+                    try:
+                        d = np.loadtxt(path, unpack=True)
+                    except ValueError:
+                        d = np.loadtxt(path, delimiter=',', unpack=True)
+                    f_ref = np.asarray(d[0], dtype=float).ravel()
+                    asd_ref = np.asarray(d[1], dtype=float).ravel()
+                    order = np.argsort(f_ref)
+                    f_ref, asd_ref = f_ref[order], asd_ref[order]
+                    keep = (np.isfinite(f_ref) & np.isfinite(asd_ref)
+                            & (f_ref > 0) & (asd_ref > 0))
+                    f_ref, asd_ref = f_ref[keep], asd_ref[keep]
+                    if len(f_ref) < 2:
+                        print(f"[Noise] Error: too few valid points in {path}")
+                        return flist, np.zeros_like(flist)
+                    return f_ref, asd_ref
+                except Exception as e:
+                    print(f"[Noise] Error processing LIGO file: {e}")
+                    return flist, np.zeros_like(flist)
+
             else:
                 print(f"[Noise] Error: Unknown model '{model}'")
                 return flist, np.zeros_like(flist)
@@ -1898,6 +2017,66 @@ class LISAeccentric:
             except Exception as e:
                 print(f"[Noise] Warning: Data injection failed: {e}")
 
+        def _inject_noise_arrays(self, flist, asdlist, label='custom'):
+            """
+            Internal Method: build the _LISA_NOISE_DATA dict straight from
+            arrays and push it into PN_waveform. Same payload as
+            _inject_noise_data, but nothing is read from or written to disk,
+            so concurrent processes cannot interfere with each other.
+            The previous dict is kept in memory for recover_noise_curve().
+            """
+            f_data = np.asarray(flist, dtype=float).ravel()
+            asd_data = np.asarray(asdlist, dtype=float).ravel()
+
+            order = np.argsort(f_data)
+            f_data, asd_data = f_data[order], asd_data[order]
+            keep = (np.isfinite(f_data) & np.isfinite(asd_data)
+                    & (f_data > 0) & (asd_data > 0))
+            f_data, asd_data = f_data[keep], asd_data[keep]
+
+            if len(f_data) < 2:
+                print("[Noise] Warning: Not enough valid points to inject.")
+                return False
+
+            log_f = np.log10(f_data)
+            log_asd = np.log10(asd_data)
+            low_f_slope = (log_asd[1] - log_asd[0]) / (log_f[1] - log_f[0])
+
+            if self._mem_backup is self._MISSING:
+                prev = getattr(PN_waveform, '_LISA_NOISE_DATA', self._MISSING)
+                # shallow copy: callers may flip flags such as 'use_file' on the
+                # live dict, and that must not leak into the snapshot
+                self._mem_backup = dict(prev) if isinstance(prev, dict) else prev
+
+            PN_waveform._LISA_NOISE_DATA = {
+                'f_min': f_data[0],
+                'f_max': f_data[-1],
+                'log_f': log_f,
+                'log_asd': log_asd,
+                'low_f_slope': low_f_slope,
+                'log_f_0': log_f[0],
+                'log_asd_0': log_asd[0],
+                'use_file': True
+            }
+            self._active_model = label
+            print(f"[Noise] In-memory injection '{label}' (Points: {len(f_data)})")
+            print(f"        Slope: {low_f_slope:.4f}, "
+                  f"f_range: [{f_data[0]:.1e}, {f_data[-1]:.1e}] Hz")
+            return True
+
+        def _restore_from_memory(self):
+            """Put back the dict that was live before the first injection."""
+            if self._mem_backup is self._MISSING:
+                return False
+            if self._mem_backup is None:
+                if hasattr(PN_waveform, '_LISA_NOISE_DATA'):
+                    del PN_waveform._LISA_NOISE_DATA
+            else:
+                PN_waveform._LISA_NOISE_DATA = self._mem_backup
+            self._mem_backup = self._MISSING
+            self._active_model = None
+            return True
+
         @mute_if_global_verbose_false
         def _reload_dependencies(self):
             """
@@ -1918,13 +2097,46 @@ class LISAeccentric:
                 print(f"[Noise] Warning: Module auto-reload failed. Error: {e}")
 
         @mute_if_global_verbose_false
-        def update_noise_curve(self, data_list):
+        def update_noise_curve(self, data_list, persist=False, reload=False):
             """
-            change noise curve, and backup old noise curve
-            input: data_list = [flist, ASDlist]
+            change noise curve, and backup the old one in memory
+
+            input: data_list = [flist, ASDlist]   custom curve
+                   data_list = 'LIGO'             built-in ground-based model
+                   data_list = 'official'/'N2A5'  built-in LISA models
+
+            By default nothing inside the package is written or moved: the
+            curve is injected into PN_waveform and the previous one is kept in
+            memory, which is what makes this safe under massive parallelism.
+            Pass persist=True for the legacy behaviour (rewrite
+            LISA_noise_ASD.csv and leave a backup file on disk) -- do not use
+            that from concurrent jobs.
             """
+            # a curve change is about to happen: tidy up whatever earlier runs
+            # left in the package folder before doing anything else
+            self.repair_noise_dir()
+
+            if isinstance(data_list, str):
+                model = data_list
+                if model not in self.BUILTIN_MODELS:
+                    print(f"[Noise] Error: Unknown model '{model}'. "
+                          f"Available: {', '.join(self.BUILTIN_MODELS)}")
+                    return
+                data_list = list(self.generate_noise_data(model=model))
+                label = model
+            else:
+                label = 'custom'
+
             if len(data_list) != 2:
                 print("Error: Input must be [flist, ASDlist].")
+                return
+
+            if not persist:
+                self._inject_noise_arrays(data_list[0], data_list[1], label=label)
+                if reload:
+                    # reload re-reads the on-disk curve, so re-inject afterwards
+                    self._reload_dependencies()
+                    self._inject_noise_arrays(data_list[0], data_list[1], label=label)
                 return
 
             flist, asdlist = data_list[0], data_list[1]
@@ -1952,12 +2164,33 @@ class LISAeccentric:
                 print(f"[Noise] Updated noise file at: {os.path.basename(abs_path)}")
 
                 self._reload_dependencies()
+                self._persisted = True
 
             except Exception as e:
                 print(f"[Noise] Error writing file: {e}")
 
         @mute_if_global_verbose_false
         def recover_noise_curve(self, version=None):
+            """
+            Undo an update_noise_curve().
+
+            If the curve was swapped in memory (the default), the previous dict
+            is simply put back and `version` is ignored. Otherwise the legacy
+            file-based restore is used. 'official' / 'N2A5' / 'LIGO' can also be
+            passed to load a built-in model in memory.
+            """
+            # in-memory swap: restore and clean up, no file work needed
+            if self._restore_from_memory():
+                print("[Noise] Recovered noise from in-memory snapshot.")
+                self.repair_noise_dir()
+                return
+
+            if version in self.BUILTIN_MODELS and not self._persisted:
+                f, asd = self.generate_noise_data(model=version)
+                self._inject_noise_arrays(f, asd, label=version)
+                self.repair_noise_dir()
+                return
+
             target_dir = os.path.dirname(self.noise_file_path)
 
             if version == 'official':
@@ -1979,25 +2212,42 @@ class LISAeccentric:
                 shutil.copyfile(source_path, self.noise_file_path)
                 print(f"[Noise] Recovered noise from: {source_name}")
                 self._reload_dependencies()
+                self._persisted = False
+                # restore is done, now drop the leftover backup files
+                self.repair_noise_dir()
             except Exception as e:
                 print(f"[Noise] Error recovering file: {e}")
 
         @mute_if_global_verbose_false
         def clean_backups(self):
-            target_dir = os.path.dirname(self.noise_file_path)
+            """Remove every non-canonical noise file and rebuild the runtime
+            curve if it went missing."""
             print(f"[Noise] Cleaning backup files...")
-            count = 0
-            try:
-                for filename in os.listdir(target_dir):
-                    if filename.startswith(self.base_backup_name) and filename.endswith(".csv"):
-                        os.remove(os.path.join(target_dir, filename))
-                        count += 1
-            except Exception as e:
-                print(f"[Noise] Error during cleaning: {e}")
-            print(f"[Noise] Removed {count} backup file(s).")
+            self.repair_noise_dir()
 
         @mute_if_global_verbose_false
         def get_noise_curve(self, plot=True):
+            # An in-memory swap does not change the file, so report the dict
+            # that PN_waveform is actually using whenever one is live.
+            live = getattr(PN_waveform, '_LISA_NOISE_DATA', None)
+            if self._active_model is not None and isinstance(live, dict) \
+                    and 'log_f' in live and 'log_asd' in live:
+                f = np.power(10.0, np.asarray(live['log_f'], dtype=float))
+                asd = np.power(10.0, np.asarray(live['log_asd'], dtype=float))
+                noise_char = np.sqrt(f) * asd
+                print(f"[Noise] Active curve: in-memory '{self._active_model}'")
+                if plot:
+                    plt.figure(figsize=(8, 6))
+                    plt.loglog(f, noise_char, color='black', linewidth=1.5,
+                               label=f"Current Noise Curve ({self._active_model})")
+                    plt.xlabel('Frequency [Hz]', fontsize=12)
+                    plt.ylabel(r'$\sqrt{f S_n(f)}$ [unitless]', fontsize=12)
+                    plt.title(f'Characteristic Noise Strain', fontsize=12)
+                    plt.grid(True, which="both", ls="--", alpha=0.4)
+                    plt.legend()
+                    plt.show()
+                return [f, noise_char]
+
             if not os.path.exists(self.noise_file_path):
                 print(f"[Noise] Error: File not found.")
                 return None
