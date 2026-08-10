@@ -186,9 +186,9 @@ setup(
     include_package_data=True,
     package_data={
         'leap': [
-            '*.csv', '*.npy', '*.npz',
-            '*/*.csv', '*/*.npy', '*/*.npz',
-            '*/*/*.csv', '*/*/*.npy', '*/*/*.npz',
+            '*.csv', '*.npy', '*.npz','*.txt',
+            '*/*.csv', '*/*.npy', '*/*.npz','*/*.txt',
+            '*/*/*.csv', '*/*/*.npy', '*/*/*.npz','*/*/*.txt'
         ],
 
         'LISAeccentric': ['*.py'],
